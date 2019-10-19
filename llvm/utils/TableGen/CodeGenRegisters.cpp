@@ -1008,7 +1008,9 @@ CodeGenRegisterClass::getMatchingSubClassWithSubRegs(
     if (SuperRegRCsBV[RC.EnumValue])
       SuperRegRCs.emplace_back(&RC);
   llvm::sort(SuperRegRCs, SizeOrder);
-  assert(SuperRegRCs.front() == BiggestSuperRegRC && "Biggest class wasn't first");
+  assert(SuperRegRCs.front()->getMembers().size() ==
+             BiggestSuperRegRC->getMembers().size() &&
+         "Biggest class wasn't first");
 
   // Find all the subreg classes and order them by size too.
   std::vector<std::pair<CodeGenRegisterClass *, BitVector>> SuperRegClasses;

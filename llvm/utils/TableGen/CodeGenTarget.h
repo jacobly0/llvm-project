@@ -126,6 +126,10 @@ public:
   /// specified physical register.
   std::vector<ValueTypeByHwMode> getRegisterVTs(Record *R) const;
 
+  /// getRegisterKnownVT - If the specified physical register has exactly one
+  /// SimpleValueType it is returned, otherwise MVT::Other is returned.
+  MVT::SimpleValueType getRegisterKnownVT(Record *R) const;
+
   ArrayRef<ValueTypeByHwMode> getLegalValueTypes() const {
     if (LegalValueTypes.empty())
       ReadLegalValueTypes();
