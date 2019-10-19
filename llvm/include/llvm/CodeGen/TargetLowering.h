@@ -1535,7 +1535,7 @@ public:
   /// example, on X86 targets without SSE2 f64 load / store are done with fldl /
   /// fstpl which also does type conversion. Note the specified type doesn't
   /// have to be legal as the hook is used before type legalization.
-  virtual bool isSafeMemOpType(MVT /*VT*/) const { return true; }
+  virtual bool isSafeMemOpType(MVT VT) const { return VT.isPow2Size(); }
 
   /// Determine if we should use _setjmp or setjmp to implement llvm.setjmp.
   bool usesUnderscoreSetJmp() const {
