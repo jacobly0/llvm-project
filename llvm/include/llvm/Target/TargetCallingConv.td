@@ -77,6 +77,10 @@ class CCIfNest<CCAction A> : CCIf<"ArgFlags.isNest()", A> {}
 /// the specified action.
 class CCIfSplit<CCAction A> : CCIf<"ArgFlags.isSplit()", A> {}
 
+/// CCIfSplitEnd - If this argument is marked with the 'splitend' attribute, apply
+/// the specified action.
+class CCIfSplitEnd<CCAction A> : CCIf<"ArgFlags.isSplitEnd()", A> {}
+
 /// CCIfSRet - If this argument is marked with the 'sret' attribute, apply
 /// the specified action.
 class CCIfSRet<CCAction A> : CCIf<"ArgFlags.isSRet()", A> {}

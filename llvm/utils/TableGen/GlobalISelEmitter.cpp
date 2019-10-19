@@ -849,7 +849,7 @@ protected:
 
   /// A map of anonymous physical register operands defined by the matchers that
   /// may be referenced by the renderers.
-  DenseMap<Record *, OperandMatcher *> PhysRegOperands;
+  DenseMap<Record *, OperandMatcher *> PhysRegDefs, PhysRegUses;
 
   /// ID for the next instruction variable defined with implicitlyDefineInsnVar()
   unsigned NextInsnVarID;
@@ -933,9 +933,11 @@ public:
     return make_range(actions_begin(), actions_end());
   }
 
+  bool hasOperand(StringRef SymbolicName);
+
   void defineOperand(StringRef SymbolicName, OperandMatcher &OM);
 
-  void definePhysRegOperand(Record *Reg, OperandMatcher &OM);
+  void definePhysRegOperand(Record *Reg, OperandMatcher &OM, bool IsDef = false);
 
   Error defineComplexSubOperand(StringRef SymbolicName, Record *ComplexPattern,
                                 unsigned RendererID, unsigned SubOperandID) {
@@ -960,7 +962,8 @@ public:
 
   InstructionMatcher &getInstructionMatcher(StringRef SymbolicName) const;
   const OperandMatcher &getOperandMatcher(StringRef Name) const;
-  const OperandMatcher &getPhysRegOperandMatcher(Record *) const;
+  const OperandMatcher &getPhysRegOperandMatcher(Record *Reg,
+                                                 bool IsDef = false) const;
 
   void optimize() override;
   void emit(MatchTable &Table) override;
@@ -2393,11 +2396,12 @@ class CopyPhysRegRenderer : public OperandRenderer {
 protected:
   unsigned NewInsnID;
   Record *PhysReg;
+  bool IsDef;
 
 public:
-  CopyPhysRegRenderer(unsigned NewInsnID, Record *Reg)
+  CopyPhysRegRenderer(unsigned NewInsnID, Record *Reg, bool IsDef = false)
       : OperandRenderer(OR_CopyPhysReg), NewInsnID(NewInsnID),
-        PhysReg(Reg) {
+        PhysReg(Reg), IsDef(IsDef) {
     assert(PhysReg);
   }
 
@@ -2408,14 +2412,14 @@ public:
   Record *getPhysReg() const { return PhysReg; }
 
   void emitRenderOpcodes(MatchTable &Table, RuleMatcher &Rule) const override {
-    const OperandMatcher &Operand = Rule.getPhysRegOperandMatcher(PhysReg);
+    const OperandMatcher &Operand =
+        Rule.getPhysRegOperandMatcher(PhysReg, IsDef);
     unsigned OldInsnVarID = Rule.getInsnVarID(Operand.getInstructionMatcher());
     Table << MatchTable::Opcode("GIR_Copy") << MatchTable::Comment("NewInsnID")
           << MatchTable::IntValue(NewInsnID) << MatchTable::Comment("OldInsnID")
           << MatchTable::IntValue(OldInsnVarID) << MatchTable::Comment("OpIdx")
           << MatchTable::IntValue(Operand.getOpIdx())
-          << MatchTable::Comment(PhysReg->getName())
-          << MatchTable::LineBreak;
+          << MatchTable::Comment(PhysReg->getName()) << MatchTable::LineBreak;
   }
 };
 
@@ -2817,6 +2821,20 @@ public:
   }
 };
 
+/// Generates code to erase an instructiono.
+class EraseFromParentAction : public MatchAction {
+  unsigned InsnID;
+
+public:
+  EraseFromParentAction(unsigned InsnID) : InsnID(InsnID) {}
+
+  void emitActionOpcodes(MatchTable &Table, RuleMatcher &Rule) const override {
+    Table << MatchTable::Opcode("GIR_EraseFromParent")
+          << MatchTable::Comment("InsnID") << MatchTable::IntValue(InsnID)
+          << MatchTable::LineBreak;
+  }
+};
+
 /// Generates code to build an instruction or mutate an existing instruction
 /// into the desired instruction when this is possible.
 class BuildMIAction : public MatchAction {
@@ -2863,6 +2881,10 @@ public:
         return;
       }
     }
+    // FIXME: This is a hack but it's sufficient for ISel. We'll need to do
+    //        better for combines. Particularly when there are multiple match
+    //        roots.
+    Rule.addAction<EraseFromParentAction>(InsnID);
   }
 
   template <class Kind, class... Args>
@@ -2939,14 +2961,6 @@ public:
       Table << MatchTable::NamedValue("GIU_MergeMemOperands_EndOfList")
             << MatchTable::LineBreak;
     }
-
-    // FIXME: This is a hack but it's sufficient for ISel. We'll need to do
-    //        better for combines. Particularly when there are multiple match
-    //        roots.
-    if (InsnID == 0)
-      Table << MatchTable::Opcode("GIR_EraseFromParent")
-            << MatchTable::Comment("InsnID") << MatchTable::IntValue(InsnID)
-            << MatchTable::LineBreak;
   }
 };
 
@@ -3062,8 +3076,12 @@ unsigned RuleMatcher::getInsnVarID(InstructionMatcher &InsnMatcher) const {
   llvm_unreachable("Matched Insn was not captured in a local variable");
 }
 
+bool RuleMatcher::hasOperand(StringRef SymbolicName) {
+  return DefinedOperands.find(SymbolicName) != DefinedOperands.end();
+}
+
 void RuleMatcher::defineOperand(StringRef SymbolicName, OperandMatcher &OM) {
-  if (DefinedOperands.find(SymbolicName) == DefinedOperands.end()) {
+  if (!hasOperand(SymbolicName)) {
     DefinedOperands[SymbolicName] = &OM;
     return;
   }
@@ -3073,7 +3091,9 @@ void RuleMatcher::defineOperand(StringRef SymbolicName, OperandMatcher &OM) {
   OM.addPredicate<SameOperandMatcher>(OM.getSymbolicName());
 }
 
-void RuleMatcher::definePhysRegOperand(Record *Reg, OperandMatcher &OM) {
+void RuleMatcher::definePhysRegOperand(Record *Reg, OperandMatcher &OM,
+                                       bool IsDef) {
+  auto &PhysRegOperands = IsDef ? PhysRegDefs : PhysRegUses;
   if (PhysRegOperands.find(Reg) == PhysRegOperands.end()) {
     PhysRegOperands[Reg] = &OM;
     return;
@@ -3090,7 +3110,8 @@ RuleMatcher::getInstructionMatcher(StringRef SymbolicName) const {
 }
 
 const OperandMatcher &
-RuleMatcher::getPhysRegOperandMatcher(Record *Reg) const {
+RuleMatcher::getPhysRegOperandMatcher(Record *Reg, bool IsDef) const {
+  auto &PhysRegOperands = IsDef ? PhysRegDefs : PhysRegUses;
   const auto &I = PhysRegOperands.find(Reg);
 
   if (I == PhysRegOperands.end()) {
@@ -3292,22 +3313,6 @@ void SameOperandMatcher::emitPredicateOpcodes(MatchTable &Table,
 
 //===- GlobalISelEmitter class --------------------------------------------===//
 
-static Expected<LLTCodeGen> getInstResultType(const TreePatternNode *Dst) {
-  ArrayRef<TypeSetByHwMode> ChildTypes = Dst->getExtTypes();
-  if (ChildTypes.size() != 1)
-    return failedImport("Dst pattern child has multiple results");
-
-  Optional<LLTCodeGen> MaybeOpTy;
-  if (ChildTypes.front().isMachineValueType()) {
-    MaybeOpTy =
-      MVTToLLT(ChildTypes.front().getMachineValueType().SimpleTy);
-  }
-
-  if (!MaybeOpTy)
-    return failedImport("Dst operand has an unsupported type");
-  return *MaybeOpTy;
-}
-
 class GlobalISelEmitter {
 public:
   explicit GlobalISelEmitter(RecordKeeper &RK);
@@ -3345,6 +3350,8 @@ private:
   // Rule coverage information.
   Optional<CodeGenCoverage> RuleCoverage;
 
+  Expected<LLTCodeGen> getInstResultType(const TreePatternNode *Dst) const;
+
   void gatherOpcodeValues();
   void gatherTypeIDValues();
   void gatherNodeEquivs();
@@ -3374,7 +3381,8 @@ private:
   Expected<action_iterator>
   createInstructionRenderer(action_iterator InsertPt, RuleMatcher &M,
                             const TreePatternNode *Dst);
-  void importExplicitDefRenderers(BuildMIAction &DstMIBuilder);
+  void importExplicitDefRenderers(BuildMIAction &DstMIBuilder,
+                                  const TreePatternNode *Src);
 
   Expected<action_iterator>
   importExplicitUseRenderers(action_iterator InsertPt, RuleMatcher &M,
@@ -3387,9 +3395,8 @@ private:
   Error importDefaultOperandRenderers(action_iterator InsertPt, RuleMatcher &M,
                                       BuildMIAction &DstMIBuilder,
                                       DagInit *DefaultOps) const;
-  Error
-  importImplicitDefRenderers(BuildMIAction &DstMIBuilder,
-                             const std::vector<Record *> &ImplicitDefs) const;
+  Error importImplicitDefRenderers(RuleMatcher &M, BuildMIAction &DstMIBuilder,
+                                   const TreePatternNode *Src) const;
 
   void emitCxxPredicateFns(raw_ostream &OS, StringRef CodeFieldName,
                            StringRef TypeIdentifier, StringRef ArgType,
@@ -3466,6 +3473,24 @@ public:
       ArrayRef<Matcher *> Rules,
       std::vector<std::unique_ptr<Matcher>> &MatcherStorage);
 };
+
+Expected<LLTCodeGen>
+GlobalISelEmitter::getInstResultType(const TreePatternNode *Dst) const {
+  ArrayRef<TypeSetByHwMode> ChildTypes = Dst->getExtTypes();
+  CodeGenInstruction *DstI = &Target.getInstruction(Dst->getOperator());
+  if (ChildTypes.size() - DstI->ImplicitDefs.size() != 1)
+    return failedImport("Dst pattern child has multiple results");
+
+  Optional<LLTCodeGen> MaybeOpTy;
+  if (ChildTypes.front().isMachineValueType()) {
+    MaybeOpTy =
+      MVTToLLT(ChildTypes.front().getMachineValueType().SimpleTy);
+  }
+
+  if (!MaybeOpTy)
+    return failedImport("Dst operand has an unsupported type");
+  return *MaybeOpTy;
+}
 
 void GlobalISelEmitter::gatherOpcodeValues() {
   InstructionOpcodeMatcher::initOpcodeValuesMap(Target);
@@ -4033,6 +4058,9 @@ Error GlobalISelEmitter::importChildMatcher(
 Expected<action_iterator> GlobalISelEmitter::importExplicitUseRenderer(
     action_iterator InsertPt, RuleMatcher &Rule, BuildMIAction &DstMIBuilder,
     TreePatternNode *DstChild) {
+  if (DstChild->hasName() && !Rule.hasOperand(DstChild->getName()))
+    return failedImport("Could not find any uses of operand " +
+                        DstChild->getName() + " in the pattern");
 
   const auto &SubOperand = Rule.getComplexSubOperand(DstChild->getName());
   if (SubOperand.hasValue()) {
@@ -4083,6 +4111,7 @@ Expected<action_iterator> GlobalISelEmitter::importExplicitUseRenderer(
       DstMIBuilder.addRenderer<CopyRenderer>(DstChild->getName());
       return InsertPt;
     } else if (DstChild->getOperator()->getName() == "imm") {
+      return failedImport("I don't think this works");
       DstMIBuilder.addRenderer<CopyConstantAsImmRenderer>(DstChild->getName());
       return InsertPt;
     } else if (DstChild->getOperator()->getName() == "fpimm") {
@@ -4199,11 +4228,18 @@ Expected<BuildMIAction &> GlobalISelEmitter::createAndImportInstructionRenderer(
     CopyToPhysRegMIBuilder.addRenderer<CopyPhysRegRenderer>(PhysInput.first);
   }
 
-  importExplicitDefRenderers(DstMIBuilder);
+  importExplicitDefRenderers(DstMIBuilder, Src);
 
   if (auto Error = importExplicitUseRenderers(InsertPt, M, DstMIBuilder, Dst)
                        .takeError())
     return std::move(Error);
+  InsertPt = InsertPtOrError.get();
+
+  // Render the implicit defs.
+  // These are only added to the root of the result.
+  if (auto Error = importImplicitDefRenderers(M, DstMIBuilder, Src))
+    return std::move(Error);
+  InsertPt = InsertPtOrError.get();
 
   return DstMIBuilder;
 }
@@ -4329,9 +4365,10 @@ Expected<action_iterator> GlobalISelEmitter::createInstructionRenderer(
 }
 
 void GlobalISelEmitter::importExplicitDefRenderers(
-    BuildMIAction &DstMIBuilder) {
+    BuildMIAction &DstMIBuilder, const llvm::TreePatternNode *Src) {
   const CodeGenInstruction *DstI = DstMIBuilder.getCGI();
-  for (unsigned I = 0; I < DstI->Operands.NumDefs; ++I) {
+  unsigned NumDefs = std::min(DstI->Operands.NumDefs, Src->getNumResults());
+  for (unsigned I = 0; I < NumDefs; ++I) {
     const CGIOperandList::OperandInfo &DstIOperand = DstI->Operands[I];
     DstMIBuilder.addRenderer<CopyRenderer>(DstIOperand.Name);
   }
@@ -4551,10 +4588,22 @@ Error GlobalISelEmitter::importDefaultOperandRenderers(
 }
 
 Error GlobalISelEmitter::importImplicitDefRenderers(
-    BuildMIAction &DstMIBuilder,
-    const std::vector<Record *> &ImplicitDefs) const {
-  if (!ImplicitDefs.empty())
-    return failedImport("Pattern defines a physical register");
+    RuleMatcher &M, BuildMIAction &DstMIBuilder,
+    const TreePatternNode *Src) const {
+  const CodeGenInstruction &DstI = *DstMIBuilder.getCGI();
+  int DstINumImplicitDefs = Src->getNumResults() - DstI.Operands.NumDefs;
+
+  for (int I = 0; I < DstINumImplicitDefs; ++I) {
+    auto PhysOutput = DstI.ImplicitDefs[I];
+    assert(PhysOutput->isSubClassOf("Register"));
+    BuildMIAction &CopyFromPhysRegMIBuilder = M.addAction<BuildMIAction>(
+        M.allocateOutputInsnID(), &Target.getInstruction(RK.getDef("COPY")));
+    CopyFromPhysRegMIBuilder.addRenderer<CopyPhysRegRenderer>(PhysOutput, true);
+    CopyFromPhysRegMIBuilder.addRenderer<AddRegisterRenderer>(PhysOutput);
+    M.addAction<ConstrainOperandToRegClassAction>(
+        CopyFromPhysRegMIBuilder.getInsnID(), 0,
+        *CGRegs.getRegClassForRegister(PhysOutput));
+  }
   return Error::success();
 }
 
@@ -4770,75 +4819,75 @@ Expected<RuleMatcher> GlobalISelEmitter::runOnPattern(const PatternToMatch &P) {
   auto &DstI = Target.getInstruction(DstOp);
   StringRef DstIName = DstI.TheDef->getName();
 
-  if (DstI.Operands.NumDefs != Src->getExtTypes().size())
-    return failedImport("Src pattern results and dst MI defs are different (" +
-                        to_string(Src->getExtTypes().size()) + " def(s) vs " +
-                        to_string(DstI.Operands.NumDefs) + " def(s))");
+  unsigned SrcNumResults = Src->getNumResults();
+  unsigned DstNumDefs = DstI.Operands.NumDefs + DstI.ImplicitDefs.size();
+  if (SrcNumResults > DstNumDefs)
+    return failedImport("More src pattern results than dst MI defs (" +
+                        to_string(SrcNumResults) + " result(s) > " +
+                        to_string(DstNumDefs) + " def(s))");
 
   // The root of the match also has constraints on the register bank so that it
   // matches the result instruction.
-  unsigned OpIdx = 0;
-  for (const TypeSetByHwMode &VTy : Src->getExtTypes()) {
-    (void)VTy;
-
-    const auto &DstIOperand = DstI.Operands[OpIdx];
-    Record *DstIOpRec = DstIOperand.Rec;
-    if (DstIName == "COPY_TO_REGCLASS") {
-      DstIOpRec = getInitValueAsRegClass(Dst->getChild(1)->getLeafValue());
-
-      if (DstIOpRec == nullptr)
-        return failedImport(
-            "COPY_TO_REGCLASS operand #1 isn't a register class");
-    } else if (DstIName == "REG_SEQUENCE") {
-      DstIOpRec = getInitValueAsRegClass(Dst->getChild(0)->getLeafValue());
-      if (DstIOpRec == nullptr)
-        return failedImport("REG_SEQUENCE operand #0 isn't a register class");
-    } else if (DstIName == "EXTRACT_SUBREG") {
-      auto InferredClass = inferRegClassFromPattern(Dst->getChild(0));
-      if (!InferredClass)
-        return failedImport("Could not infer class for EXTRACT_SUBREG operand #0");
-
-      // We can assume that a subregister is in the same bank as it's super
-      // register.
-      DstIOpRec = (*InferredClass)->getDef();
-    } else if (DstIName == "INSERT_SUBREG") {
-      auto MaybeSuperClass = inferSuperRegisterClassForNode(
-          VTy, Dst->getChild(0), Dst->getChild(2));
-      if (!MaybeSuperClass)
-        return failedImport(
-            "Cannot infer register class for INSERT_SUBREG operand #0");
-      // Move to the next pattern here, because the register class we found
-      // doesn't necessarily have a record associated with it. So, we can't
-      // set DstIOpRec using this.
-      OperandMatcher &OM = InsnMatcher.getOperand(OpIdx);
-      OM.setSymbolicName(DstIOperand.Name);
-      M.defineOperand(OM.getSymbolicName(), OM);
-      OM.addPredicate<RegisterBankOperandMatcher>(**MaybeSuperClass);
-      ++OpIdx;
-      continue;
-    } else if (DstIName == "SUBREG_TO_REG") {
-      auto MaybeRegClass = inferSuperRegisterClass(VTy, Dst->getChild(2));
-      if (!MaybeRegClass)
-        return failedImport(
-            "Cannot infer register class for SUBREG_TO_REG operand #0");
-      OperandMatcher &OM = InsnMatcher.getOperand(OpIdx);
-      OM.setSymbolicName(DstIOperand.Name);
-      M.defineOperand(OM.getSymbolicName(), OM);
-      OM.addPredicate<RegisterBankOperandMatcher>(**MaybeRegClass);
-      ++OpIdx;
-      continue;
-    } else if (DstIOpRec->isSubClassOf("RegisterOperand"))
-      DstIOpRec = DstIOpRec->getValueAsDef("RegClass");
-    else if (!DstIOpRec->isSubClassOf("RegisterClass"))
-      return failedImport("Dst MI def isn't a register class" +
-                          to_string(*Dst));
-
+  for (unsigned OpIdx = 0; OpIdx != SrcNumResults; ++OpIdx) {
+    const auto &VTy = Src->getExtType(OpIdx);
     OperandMatcher &OM = InsnMatcher.getOperand(OpIdx);
-    OM.setSymbolicName(DstIOperand.Name);
-    M.defineOperand(OM.getSymbolicName(), OM);
-    OM.addPredicate<RegisterBankOperandMatcher>(
-        Target.getRegisterClass(DstIOpRec));
-    ++OpIdx;
+    Record *DstIOpRec;
+    const CodeGenRegisterClass *RC = nullptr;
+    if (OpIdx < DstI.Operands.NumDefs) {
+      const auto &DstIOperand = DstI.Operands[OpIdx];
+      OM.setSymbolicName(DstIOperand.Name);
+      M.defineOperand(OM.getSymbolicName(), OM);
+      DstIOpRec = DstIOperand.Rec;
+
+      if (DstIName == "COPY_TO_REGCLASS") {
+        DstIOpRec = getInitValueAsRegClass(Dst->getChild(1)->getLeafValue());
+
+        if (DstIOpRec == nullptr)
+          return failedImport(
+              "COPY_TO_REGCLASS operand #1 isn't a register class");
+      } else if (DstIName == "REG_SEQUENCE") {
+        DstIOpRec = getInitValueAsRegClass(Dst->getChild(0)->getLeafValue());
+        if (DstIOpRec == nullptr)
+          return failedImport("REG_SEQUENCE operand #0 isn't a register class");
+      } else if (DstIName == "EXTRACT_SUBREG") {
+        auto InferredClass = inferRegClassFromPattern(Dst->getChild(0));
+        if (!InferredClass)
+          return failedImport("Could not infer class for EXTRACT_SUBREG operand #0");
+
+        // We can assume that a subregister is in the same bank as it's super
+        // register.
+        DstIOpRec = (*InferredClass)->getDef();
+      } else if (DstIName == "INSERT_SUBREG") {
+        auto MaybeSuperClass = inferSuperRegisterClassForNode(
+            VTy, Dst->getChild(0), Dst->getChild(2));
+        if (!MaybeSuperClass)
+          return failedImport(
+              "Cannot infer register class for INSERT_SUBREG operand #0");
+        RC = *MaybeSuperClass;
+      } else if (DstIName == "SUBREG_TO_REG") {
+        auto MaybeRegClass = inferSuperRegisterClass(VTy, Dst->getChild(2));
+        if (!MaybeRegClass)
+          return failedImport(
+              "Cannot infer register class for SUBREG_TO_REG operand #0");
+        RC = *MaybeRegClass;
+      } else if (DstIOpRec->isSubClassOf("RegisterOperand"))
+        DstIOpRec = DstIOpRec->getValueAsDef("RegClass");
+      else if (!DstIOpRec->isSubClassOf("RegisterClass"))
+        return failedImport("Dst MI def isn't a register class" +
+                            to_string(*Dst));
+    } else {
+      DstIOpRec = DstI.ImplicitDefs[OpIdx - DstI.Operands.NumDefs];
+      if (!DstIOpRec->isSubClassOf("Register"))
+        return failedImport("Expected implicit def to be a register.");
+      RC = CGRegs.getRegClassForRegister(DstIOpRec);
+      if (!RC)
+        return failedImport("Cannot infer register class for register");
+      M.definePhysRegOperand(DstIOpRec, OM, true);
+    }
+
+    if (!RC)
+      RC = &Target.getRegisterClass(DstIOpRec);
+    OM.addPredicate<RegisterBankOperandMatcher>(*RC);
   }
 
   auto DstMIBuilderOrError =
@@ -4846,11 +4895,6 @@ Expected<RuleMatcher> GlobalISelEmitter::runOnPattern(const PatternToMatch &P) {
   if (auto Error = DstMIBuilderOrError.takeError())
     return std::move(Error);
   BuildMIAction &DstMIBuilder = DstMIBuilderOrError.get();
-
-  // Render the implicit defs.
-  // These are only added to the root of the result.
-  if (auto Error = importImplicitDefRenderers(DstMIBuilder, P.getDstRegs()))
-    return std::move(Error);
 
   DstMIBuilder.chooseInsnToMutate(M);
 

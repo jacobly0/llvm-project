@@ -2484,7 +2484,7 @@ bool TreePatternNode::ApplyTypeConstraints(TreePattern &TP, bool NotRegisters) {
     // If this is an INSERT_SUBREG, constrain the source and destination VTs to
     // be the same.
     if (getOperator()->getName() == "INSERT_SUBREG") {
-      assert(getChild(0)->getNumTypes() == 1 && "FIXME: Unhandled");
+      assert(getChild(0)->getNumTypes() >= 1 && "FIXME: Unhandled");
       MadeChange |= UpdateNodeType(0, getChild(0)->getExtType(0), TP);
       MadeChange |= getChild(0)->UpdateNodeType(0, getExtType(0), TP);
     } else if (getOperator()->getName() == "REG_SEQUENCE") {
@@ -2793,7 +2793,7 @@ TreePatternNodePtr TreePattern::ParseTreePattern(Init *TheInit,
         ParseTreePattern(Dag->getArg(0), Dag->getArgNameStr(0));
 
     // Apply the type cast.
-    assert(New->getNumTypes() == 1 && "FIXME: Unhandled");
+    assert(New->getNumTypes() >= 1 && "FIXME: Unhandled");
     const CodeGenHwModes &CGH = getDAGPatterns().getTargetInfo().getHwModes();
     New->UpdateNodeType(0, getValueTypeByHwMode(Operator, CGH), *this);
 

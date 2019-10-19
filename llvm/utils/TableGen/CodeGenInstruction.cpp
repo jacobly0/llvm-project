@@ -457,6 +457,15 @@ HasOneImplicitDefWithKnownVT(const CodeGenTarget &TargetInfo) const {
   return MVT::Other;
 }
 
+/// HasImplicitDef - If the instruction has the passed register as an
+/// implicit def.
+bool CodeGenInstruction::HasImplicitDef(Record *Reg) const {
+  assert(Reg->isSubClassOf("Register"));
+  for (Record *ImplicitDef : ImplicitDefs)
+    if (ImplicitDef == Reg)
+      return true;
+  return false;
+}
 
 /// FlattenAsmStringVariants - Flatten the specified AsmString to only
 /// include text from the specified variant, returning the new string.

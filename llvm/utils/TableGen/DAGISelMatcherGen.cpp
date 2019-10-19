@@ -1029,20 +1029,19 @@ void MatcherGen::EmitResultCode() {
 
   // If the pattern also has (implicit) results, count them as well.
   if (!Pattern.getDstRegs().empty()) {
-    // If the root came from an implicit def in the instruction handling stuff,
-    // don't re-add it.
-    Record *HandledReg = nullptr;
     const TreePatternNode *DstPat = Pattern.getDstPattern();
-    if (!DstPat->isLeaf() &&DstPat->getOperator()->isSubClassOf("Instruction")){
-      const CodeGenTarget &CGT = CGP.getTargetInfo();
-      CodeGenInstruction &II = CGT.getInstruction(DstPat->getOperator());
-
-      if (II.HasOneImplicitDefWithKnownVT(CGT) != MVT::Other)
-        HandledReg = II.ImplicitDefs[0];
-    }
+    const CodeGenTarget &CGT = CGP.getTargetInfo();
+    CodeGenInstruction *II = nullptr;
+    if (!DstPat->isLeaf() && DstPat->getOperator()->isSubClassOf("Instruction"))
+      II = &CGT.getInstruction(DstPat->getOperator());
 
     for (Record *Reg : Pattern.getDstRegs()) {
-      if (!Reg->isSubClassOf("Register") || Reg == HandledReg) continue;
+      if (!Reg->isSubClassOf("Register")) continue;
+      // If the root came from an implicit def in the instruction handling stuff,
+      // don't re-add it.
+      if (II && II->HasImplicitDef(Reg) &&
+          CGT.getRegisterKnownVT(Reg) != MVT::Other)
+        continue;
       ++NumSrcResults;
     }
   }
