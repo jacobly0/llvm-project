@@ -653,7 +653,19 @@ class RuleMatcher;
 
 class Matcher {
 public:
+  enum MatcherKind {
+    MK_Group,
+    MK_Switch,
+    MK_Rule,
+  };
+private:
+  MatcherKind TheKind;
+public:
+  Matcher(MatcherKind Kind) : TheKind(Kind) {}
   virtual ~Matcher() = default;
+
+  MatcherKind getKind() const { return TheKind; }
+
   virtual void optimize() {}
   virtual void emit(MatchTable &Table) = 0;
 
@@ -683,6 +695,9 @@ class GroupMatcher final : public Matcher {
   std::vector<std::unique_ptr<Matcher>> MatcherStorage;
 
 public:
+  GroupMatcher() : Matcher(MK_Group) {}
+  static bool classof(const Matcher *M) { return M->getKind() == MK_Group; }
+
   /// Add a matcher to the collection of nested matchers if it meets the
   /// requirements, and return true. If it doesn't, do nothing and return false.
   ///
@@ -742,7 +757,7 @@ private:
   bool candidateConditionMatches(const PredicateMatcher &Predicate) const;
 };
 
-class SwitchMatcher : public Matcher {
+class SwitchMatcher final : public Matcher {
   /// All the nested matchers, representing distinct switch-cases. The first
   /// conditions (as Matcher::getFirstCondition() reports) of all the nested
   /// matchers must share the same type and path to a value they check, in other
@@ -763,6 +778,9 @@ class SwitchMatcher : public Matcher {
   std::vector<std::unique_ptr<Matcher>> MatcherStorage;
 
 public:
+  SwitchMatcher() : Matcher(MK_Switch) {}
+  static bool classof(const Matcher *M) { return M->getKind() == MK_Switch; }
+
   bool addMatcher(Matcher &Candidate);
 
   void finalize();
@@ -797,7 +815,7 @@ private:
 };
 
 /// Generates code to check that a match rule matches.
-class RuleMatcher : public Matcher {
+class RuleMatcher final : public Matcher {
 public:
   using ActionList = std::list<std::unique_ptr<MatchAction>>;
   using action_iterator = ActionList::iterator;
@@ -859,10 +877,12 @@ protected:
 
 public:
   RuleMatcher(ArrayRef<SMLoc> SrcLoc)
-      : Matchers(), Actions(), InsnVariableIDs(), MutatableInsns(),
-        DefinedOperands(), NextInsnVarID(0), NextOutputInsnID(0),
-        NextTempRegID(0), SrcLoc(SrcLoc), ComplexSubOperands(),
-        RuleID(NextRuleID++) {}
+      : Matcher(MK_Rule), Matchers(), Actions(), InsnVariableIDs(),
+        MutatableInsns(), DefinedOperands(), NextInsnVarID(0),
+        NextOutputInsnID(0), NextTempRegID(0), SrcLoc(SrcLoc),
+        ComplexSubOperands(), RuleID(NextRuleID++) {}
+  static bool classof(const Matcher *M) { return M->getKind() == MK_Rule; }
+
   RuleMatcher(RuleMatcher &&Other) = default;
   RuleMatcher &operator=(RuleMatcher &&Other) = default;
 
@@ -5080,8 +5100,8 @@ GlobalISelEmitter::buildMatchTable(MutableArrayRef<RuleMatcher> Rules,
 
   std::stable_sort(InputRules.begin(), InputRules.end(),
                    [&OpcodeOrder](const Matcher *A, const Matcher *B) {
-                     auto *L = static_cast<const RuleMatcher *>(A);
-                     auto *R = static_cast<const RuleMatcher *>(B);
+                     auto *L = cast<RuleMatcher>(A);
+                     auto *R = cast<RuleMatcher>(B);
                      return std::make_tuple(OpcodeOrder[L->getOpcode()],
                                             L->getNumOperands()) <
                             std::make_tuple(OpcodeOrder[R->getOpcode()],
@@ -5111,14 +5131,14 @@ void GroupMatcher::optimize() {
   auto E = Matchers.end();
   while (T != E) {
     while (T != E) {
-      auto *R = static_cast<RuleMatcher *>(*T);
+      auto *R = cast<RuleMatcher>(*T);
       if (!R->getFirstConditionAsRootType().get().isValid())
         break;
       ++T;
     }
     std::stable_sort(F, T, [](Matcher *A, Matcher *B) {
-      auto *L = static_cast<RuleMatcher *>(A);
-      auto *R = static_cast<RuleMatcher *>(B);
+      auto *L = cast<RuleMatcher>(A);
+      auto *R = cast<RuleMatcher>(B);
       return L->getFirstConditionAsRootType() <
              R->getFirstConditionAsRootType();
     });
@@ -5616,7 +5636,7 @@ void GroupMatcher::emit(MatchTable &Table) {
   }
   for (auto &Condition : Conditions)
     Condition->emitPredicateOpcodes(
-        Table, *static_cast<RuleMatcher *>(*Matchers.begin()));
+        Table, *cast<RuleMatcher>(*Matchers.begin()));
 
   for (const auto &M : Matchers)
     M->emit(Table);
