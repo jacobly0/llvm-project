@@ -1117,7 +1117,7 @@ public:
   virtual ~PredicateMatcher() = default;
   /// Emit MatchTable opcodes that check the predicate for the given operand.
   virtual void emitPredicateOpcodes(MatchTable &Table,
-                                    RuleMatcher &Rule) const = 0;
+                                    Matcher& Rule) const = 0;
 
   PredicateKind getKind() const { return Kind; }
 
@@ -1181,7 +1181,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override;
+                            Matcher& Rule) const override;
 
   bool isIdentical(const PredicateMatcher &B) const override {
     return OperandPredicateMatcher::isIdentical(B) &&
@@ -1232,7 +1232,7 @@ public:
   LLTCodeGen getTy() const { return Ty; }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckType") << MatchTable::Comment("MI")
           << MatchTable::IntValue(InsnVarID) << MatchTable::Comment("Op")
           << MatchTable::IntValue(OpIdx) << MatchTable::Comment("Type")
@@ -1267,7 +1267,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckPointerToAny")
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
           << MatchTable::Comment("Op") << MatchTable::IntValue(OpIdx)
@@ -1298,7 +1298,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     unsigned ID = getAllocatedTemporariesBaseID();
     Table << MatchTable::Opcode("GIM_CheckComplexPattern")
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
@@ -1333,7 +1333,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckRegBankForClass")
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
           << MatchTable::Comment("Op") << MatchTable::IntValue(OpIdx)
@@ -1354,7 +1354,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckIsMBB") << MatchTable::Comment("MI")
           << MatchTable::IntValue(InsnVarID) << MatchTable::Comment("Op")
           << MatchTable::IntValue(OpIdx) << MatchTable::LineBreak;
@@ -1371,7 +1371,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckIsImm") << MatchTable::Comment("MI")
           << MatchTable::IntValue(InsnVarID) << MatchTable::Comment("Op")
           << MatchTable::IntValue(OpIdx) << MatchTable::LineBreak;
@@ -1398,7 +1398,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckConstantInt")
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
           << MatchTable::Comment("Op") << MatchTable::IntValue(OpIdx)
@@ -1427,7 +1427,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckLiteralInt")
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
           << MatchTable::Comment("Op") << MatchTable::IntValue(OpIdx)
@@ -1455,7 +1455,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckCmpPredicate")
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
           << MatchTable::Comment("Op") << MatchTable::IntValue(OpIdx)
@@ -1485,7 +1485,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckIntrinsicID")
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
           << MatchTable::Comment("Op") << MatchTable::IntValue(OpIdx)
@@ -1546,7 +1546,7 @@ public:
 
   /// Emit MatchTable opcodes that test whether the instruction named in
   /// InsnVarID matches all the predicates and all the operands.
-  void emitPredicateOpcodes(MatchTable &Table, RuleMatcher &Rule) {
+  void emitPredicateOpcodes(MatchTable &Table, Matcher& Rule) {
     if (!Optimized) {
       std::string Comment;
       raw_string_ostream CommentOS(Comment);
@@ -1696,7 +1696,7 @@ public:
   bool hasValue() const override { return OpcodeValues.count(I); }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckOpcode") << MatchTable::Comment("MI")
           << MatchTable::IntValue(InsnVarID) << getValue()
           << MatchTable::LineBreak;
@@ -1755,7 +1755,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckNumOperands")
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
           << MatchTable::Comment("Expected")
@@ -1811,7 +1811,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode(getMatchOpcodeForPredicate(Predicate))
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
           << MatchTable::Comment("Predicate")
@@ -1852,7 +1852,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     StringRef Opcode = "GIM_CheckAtomicOrdering";
 
     if (Comparator == AO_OrStronger)
@@ -1888,7 +1888,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckMemorySizeEqualTo")
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
           << MatchTable::Comment("MMO") << MatchTable::IntValue(MMOIdx)
@@ -1919,7 +1919,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckMemoryAddressSpace")
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
           << MatchTable::Comment("MMO") << MatchTable::IntValue(MMOIdx)
@@ -1958,7 +1958,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckMemoryAlignment")
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
           << MatchTable::Comment("MMO") << MatchTable::IntValue(MMOIdx)
@@ -2000,7 +2000,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode(Relation == EqualTo
                                     ? "GIM_CheckMemorySizeEqualToLLT"
                                     : Relation == GreaterThan
@@ -2034,7 +2034,7 @@ public:
                    .Predicate;
   }
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     Table << MatchTable::Opcode("GIM_CheckCxxInsnPredicate")
           << MatchTable::Comment("MI") << MatchTable::IntValue(InsnVarID)
           << MatchTable::Comment("FnId")
@@ -2143,7 +2143,7 @@ public:
 
   /// Emit MatchTable opcodes that test whether the instruction named in
   /// InsnVarName matches all the predicates and all the operands.
-  void emitPredicateOpcodes(MatchTable &Table, RuleMatcher &Rule) {
+  void emitPredicateOpcodes(MatchTable &Table, Matcher& Rule) {
     if (NumOperandsCheck)
       InstructionNumOperandsMatcher(InsnVarID, getNumOperands())
           .emitPredicateOpcodes(Table, Rule);
@@ -2256,7 +2256,7 @@ public:
 
   InstructionMatcher &getInsnMatcher() const { return *InsnMatcher; }
 
-  void emitCaptureOpcodes(MatchTable &Table, RuleMatcher &Rule) const {
+  void emitCaptureOpcodes(MatchTable &Table, Matcher& Rule) const {
     const unsigned NewInsnVarID = InsnMatcher->getInsnVarID();
     Table << MatchTable::Opcode("GIM_RecordInsn")
           << MatchTable::Comment("DefineMI")
@@ -2268,7 +2268,7 @@ public:
   }
 
   void emitPredicateOpcodes(MatchTable &Table,
-                            RuleMatcher &Rule) const override {
+                            Matcher& Rule) const override {
     emitCaptureOpcodes(Table, Rule);
     InsnMatcher->emitPredicateOpcodes(Table, Rule);
   }
@@ -3274,9 +3274,10 @@ bool OperandPredicateMatcher::isHigherPriorityThan(
 }
 
 void SameOperandMatcher::emitPredicateOpcodes(MatchTable &Table,
-                                              RuleMatcher &Rule) const {
-  const OperandMatcher &OtherOM = Rule.getOperandMatcher(MatchingName);
-  unsigned OtherInsnVarID = Rule.getInsnVarID(OtherOM.getInstructionMatcher());
+                                              Matcher& Rule) const {
+  RuleMatcher& RM = cast<RuleMatcher>(Rule);
+  const OperandMatcher &OtherOM = RM.getOperandMatcher(MatchingName);
+  unsigned OtherInsnVarID = RM.getInsnVarID(OtherOM.getInstructionMatcher());
   assert(OtherInsnVarID == OtherOM.getInstructionMatcher().getInsnVarID());
 
   Table << MatchTable::Opcode("GIM_CheckIsSameOperand")
@@ -5635,8 +5636,7 @@ void GroupMatcher::emit(MatchTable &Table) {
           << MatchTable::JumpTarget(LabelID) << MatchTable::LineBreak;
   }
   for (auto &Condition : Conditions)
-    Condition->emitPredicateOpcodes(
-        Table, *cast<RuleMatcher>(*Matchers.begin()));
+    Condition->emitPredicateOpcodes(Table, **Matchers.begin());
 
   for (const auto &M : Matchers)
     M->emit(Table);
