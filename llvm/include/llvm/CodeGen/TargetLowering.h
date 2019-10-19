@@ -1552,7 +1552,7 @@ public:
   /// example, on X86 targets without SSE2 f64 load / store are done with fldl /
   /// fstpl which also does type conversion. Note the specified type doesn't
   /// have to be legal as the hook is used before type legalization.
-  virtual bool isSafeMemOpType(MVT /*VT*/) const { return true; }
+  virtual bool isSafeMemOpType(MVT VT) const { return VT.isPow2Size(); }
 
   /// Return lower limit for number of blocks in a jump table.
   virtual unsigned getMinimumJumpTableEntries() const;

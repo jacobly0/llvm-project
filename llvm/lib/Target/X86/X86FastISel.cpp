@@ -2911,9 +2911,11 @@ bool X86FastISel::fastLowerIntrinsicCall(const IntrinsicInst *II) {
     unsigned ResultReg = 0;
     // Check if we have an immediate version.
     if (const auto *CI = dyn_cast<ConstantInt>(RHS)) {
-      static const uint16_t Opc[2][4] = {
-        { X86::INC8r, X86::INC16r, X86::INC32r, X86::INC64r },
-        { X86::DEC8r, X86::DEC16r, X86::DEC32r, X86::DEC64r }
+      static const uint16_t Opc[2][5] = {
+        { X86::INC8r, X86::INC16r, X86::INSTRUCTION_LIST_END,
+          X86::INC32r, X86::INC64r },
+        { X86::DEC8r, X86::DEC16r, X86::INSTRUCTION_LIST_END,
+          X86::DEC32r, X86::DEC64r }
       };
 
       if (CI->isOne() && (BaseOpc == ISD::ADD || BaseOpc == ISD::SUB) &&
@@ -2944,8 +2946,10 @@ bool X86FastISel::fastLowerIntrinsicCall(const IntrinsicInst *II) {
     // it manually.
     if (BaseOpc == X86ISD::UMUL && !ResultReg) {
       static const uint16_t MULOpc[] =
-        { X86::MUL8r, X86::MUL16r, X86::MUL32r, X86::MUL64r };
-      static const MCPhysReg Reg[] = { X86::AL, X86::AX, X86::EAX, X86::RAX };
+        { X86::MUL8r, X86::MUL16r, X86::INSTRUCTION_LIST_END,
+          X86::MUL32r, X86::MUL64r };
+      static const MCPhysReg Reg[] = { X86::AL, X86::AX, X86::NoRegister,
+                                       X86::EAX, X86::RAX };
       // First copy the first operand into RAX, which is an implicit input to
       // the X86::MUL*r instruction.
       BuildMI(*FuncInfo.MBB, FuncInfo.InsertPt, DbgLoc,
@@ -2955,7 +2959,8 @@ bool X86FastISel::fastLowerIntrinsicCall(const IntrinsicInst *II) {
                                  TLI.getRegClassFor(VT), RHSReg, RHSIsKill);
     } else if (BaseOpc == X86ISD::SMUL && !ResultReg) {
       static const uint16_t MULOpc[] =
-        { X86::IMUL8r, X86::IMUL16rr, X86::IMUL32rr, X86::IMUL64rr };
+        { X86::IMUL8r, X86::IMUL16rr, X86::INSTRUCTION_LIST_END,
+          X86::IMUL32rr, X86::IMUL64rr };
       if (VT == MVT::i8) {
         // Copy the first operand into AL, which is an implicit input to the
         // X86::IMUL8r instruction.

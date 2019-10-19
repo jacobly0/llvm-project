@@ -65,6 +65,9 @@ AVRTargetLowering::AVRTargetLowering(const AVRTargetMachine &TM,
   setTruncStoreAction(MVT::i16, MVT::i8, Expand);
 
   for (MVT VT : MVT::integer_valuetypes()) {
+    if (!VT.isPow2Size())
+      continue;
+
     setOperationAction(ISD::ADDC, VT, Legal);
     setOperationAction(ISD::SUBC, VT, Legal);
     setOperationAction(ISD::ADDE, VT, Legal);
@@ -152,6 +155,9 @@ AVRTargetLowering::AVRTargetLowering(const AVRTargetMachine &TM,
 
   // Make division and modulus custom
   for (MVT VT : MVT::integer_valuetypes()) {
+    if (!VT.isPow2Size())
+      continue;
+
     setOperationAction(ISD::UDIVREM, VT, Custom);
     setOperationAction(ISD::SDIVREM, VT, Custom);
   }

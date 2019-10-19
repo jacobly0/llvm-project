@@ -723,6 +723,20 @@ void TargetLoweringBase::initActions() {
     setOperationAction(ISD::VECREDUCE_UMIN, VT, Expand);
     setOperationAction(ISD::VECREDUCE_FMAX, VT, Expand);
     setOperationAction(ISD::VECREDUCE_FMIN, VT, Expand);
+
+    // For most targets, non power of 2 types default to expand.
+    if (VT.isScalarInteger() && !VT.isPow2Size()) {
+      std::fill(std::begin(OpActions[(unsigned)VT.SimpleTy]),
+                std::end(OpActions[(unsigned)VT.SimpleTy]), Expand);
+      for (MVT OtherVT : MVT::all_valuetypes()) {
+        for (auto VTs : {std::make_pair(VT, OtherVT),
+                         std::make_pair(OtherVT, VT)}) {
+          for (unsigned ExtType : {ISD::EXTLOAD, ISD::ZEXTLOAD, ISD::SEXTLOAD})
+            setLoadExtAction(ExtType, VTs.first, VTs.second, Expand);
+          setTruncStoreAction(VTs.first, VTs.second, Expand);
+        }
+      }
+    }
   }
 
   // Most targets ignore the @llvm.prefetch intrinsic.
@@ -810,17 +824,10 @@ TargetLoweringBase::getTypeConversion(LLVMContext &Context, EVT VT) const {
     MVT NVT = TransformToType[SVT.SimpleTy];
     LegalizeTypeAction LA = ValueTypeActions.getTypeAction(SVT);
 
-    assert((LA == TypeLegal || LA == TypeSoftenFloat ||
-            (NVT.isVector() ||
-             ValueTypeActions.getTypeAction(NVT) != TypePromoteInteger)) &&
+    assert(((LA != TypePromoteInteger && LA != TypeExpandInteger) ||
+            ValueTypeActions.getTypeAction(NVT) != TypePromoteInteger) &&
            "Promote may not follow Expand or Promote");
 
-    if (LA == TypeSplitVector)
-      return LegalizeKind(LA,
-                          EVT::getVectorVT(Context, SVT.getVectorElementType(),
-                                           SVT.getVectorNumElements() / 2));
-    if (LA == TypeScalarizeVector)
-      return LegalizeKind(LA, SVT.getVectorElementType());
     return LegalizeKind(LA, NVT);
   }
 
@@ -1156,23 +1163,33 @@ void TargetLoweringBase::computeRegisterProperties(
   unsigned LargestIntReg = MVT::LAST_INTEGER_VALUETYPE;
   for (; RegClassForVT[LargestIntReg] == nullptr; --LargestIntReg)
     assert(LargestIntReg != MVT::i1 && "No integer registers defined!");
+  MVT LargestIntVT = (MVT::SimpleValueType)LargestIntReg;
 
   // Every integer value type larger than this largest register takes twice as
   // many registers to represent as the previous ValueType.
-  for (unsigned ExpandedReg = LargestIntReg + 1;
+  for (unsigned HalfReg = LargestIntReg, ExpandedReg = LargestIntReg + 1;
        ExpandedReg <= MVT::LAST_INTEGER_VALUETYPE; ++ExpandedReg) {
-    NumRegistersForVT[ExpandedReg] = 2*NumRegistersForVT[ExpandedReg-1];
-    RegisterTypeForVT[ExpandedReg] = (MVT::SimpleValueType)LargestIntReg;
-    TransformToType[ExpandedReg] = (MVT::SimpleValueType)(ExpandedReg - 1);
-    ValueTypeActions.setTypeAction((MVT::SimpleValueType)ExpandedReg,
-                                   TypeExpandInteger);
+    MVT ExpandedVT = (MVT::SimpleValueType)ExpandedReg;
+    NumRegistersForVT[ExpandedReg] = ExpandedVT.getNumParts(LargestIntVT);
+    RegisterTypeForVT[ExpandedReg] = LargestIntVT;
+    if (ExpandedVT.isPow2Size()) {
+      TransformToType[ExpandedReg] = (MVT::SimpleValueType)HalfReg;
+      ValueTypeActions.setTypeAction(ExpandedVT, TypeExpandInteger);
+      HalfReg = ExpandedReg;
+    } else {
+      assert(ExpandedReg < MVT::LAST_INTEGER_VALUETYPE &&
+             "Expected a pow 2 type larger than any non pow 2 type");
+      TransformToType[ExpandedReg] = (MVT::SimpleValueType)(ExpandedReg + 1);
+      ValueTypeActions.setTypeAction(ExpandedVT, TypePromoteInteger);
+    }
   }
+
 
   // Inspect all of the ValueType's smaller than the largest integer
   // register to see which ones need promotion.
   unsigned LegalIntReg = LargestIntReg;
-  for (unsigned IntReg = LargestIntReg - 1;
-       IntReg >= (unsigned)MVT::i1; --IntReg) {
+  for (unsigned IntReg = LargestIntReg - 1; IntReg >= (unsigned)MVT::i1;
+       --IntReg) {
     MVT IVT = (MVT::SimpleValueType)IntReg;
     if (isTypeLegal(IVT)) {
       LegalIntReg = IntReg;
@@ -1321,15 +1338,15 @@ void TargetLoweringBase::computeRegisterProperties(
       MVT NVT = VT.getPow2VectorType();
       if (NVT == VT) {
         // Type is already a power of 2.  The default action is to split.
-        TransformToType[i] = MVT::Other;
-        if (PreferredAction == TypeScalarizeVector)
-          ValueTypeActions.setTypeAction(VT, TypeScalarizeVector);
-        else if (PreferredAction == TypeSplitVector)
-          ValueTypeActions.setTypeAction(VT, TypeSplitVector);
-        else
+        if (PreferredAction != TypeScalarizeVector &&
+            PreferredAction != TypeSplitVector)
           // Set type action according to the number of elements.
-          ValueTypeActions.setTypeAction(VT, NElts == 1 ? TypeScalarizeVector
-                                                        : TypeSplitVector);
+          PreferredAction = NElts == 1 ? TypeScalarizeVector : TypeSplitVector;
+        ValueTypeActions.setTypeAction(VT, PreferredAction);
+        if (PreferredAction == TypeScalarizeVector)
+          TransformToType[i] = VT.getVectorElementType();
+        else
+          TransformToType[i] = VT.getHalfNumVectorElementsVT();
       } else {
         TransformToType[i] = NVT;
         ValueTypeActions.setTypeAction(VT, TypeWidenVector);

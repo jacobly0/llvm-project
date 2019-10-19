@@ -2304,7 +2304,7 @@ bool X86TargetLowering::isSafeMemOpType(MVT VT) const {
     return X86ScalarSSEf32;
   else if (VT == MVT::f64)
     return X86ScalarSSEf64;
-  return true;
+  return TargetLowering::isSafeMemOpType(VT);
 }
 
 bool X86TargetLowering::allowsMisalignedMemoryAccesses(
