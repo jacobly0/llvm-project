@@ -644,6 +644,7 @@ static StringRef getObjectFormatTypeName(Triple::ObjectFormatType Kind) {
   case Triple::COFF:  return "coff";
   case Triple::ELF:   return "elf";
   case Triple::MachO: return "macho";
+  case Triple::OMF:   return "omf";
   case Triple::Wasm:  return "wasm";
   case Triple::XCOFF: return "xcoff";
   }

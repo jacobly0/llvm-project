@@ -6176,6 +6176,7 @@ bool ARMAsmParser::parsePrefix(ARMMCExpr::VariantKind &RefKind) {
     CurrentFormat = WASM;
     break;
   case MCObjectFileInfo::IsXCOFF:
+  case MCObjectFileInfo::IsOMF:
     llvm_unreachable("unexpected object format");
     break;
   }

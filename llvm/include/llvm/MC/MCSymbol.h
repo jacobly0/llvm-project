@@ -47,6 +47,7 @@ protected:
     SymbolKindCOFF,
     SymbolKindELF,
     SymbolKindMachO,
+    SymbolKindOMF,
     SymbolKindWasm,
     SymbolKindXCOFF,
   };
@@ -280,6 +281,8 @@ public:
   bool isWasm() const { return Kind == SymbolKindWasm; }
 
   bool isXCOFF() const { return Kind == SymbolKindXCOFF; }
+
+  bool isOMF() const { return Kind == SymbolKindOMF; }
 
   /// @}
   /// \name Variable Symbols

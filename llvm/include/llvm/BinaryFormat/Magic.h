@@ -50,6 +50,8 @@ struct file_magic {
     wasm_object,         ///< WebAssembly Object file
     pdb,                 ///< Windows PDB debug info file
     tapi_file,           ///< Text-based Dynamic Library Stub file
+    omf_object,          ///< IEEE 695 OMF assembler file
+    omf_archive,         ///< IEEE 695 OMF LIBRARY file
   };
 
   bool is_object() const { return V != unknown; }

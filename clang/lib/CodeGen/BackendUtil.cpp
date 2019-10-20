@@ -245,6 +245,8 @@ static bool asanUseGlobalsGC(const Triple &T, const CodeGenOptions &CGOpts) {
     return CGOpts.DataSections && !CGOpts.DisableIntegratedAS;
   case Triple::XCOFF:
     llvm::report_fatal_error("ASan not implemented for XCOFF.");
+  case Triple::OMF:
+    llvm::report_fatal_error("ASan not implemented for OMF.");
   case Triple::Wasm:
   case Triple::UnknownObjectFormat:
     break;

@@ -225,6 +225,7 @@ public:
     COFF,
     ELF,
     MachO,
+    OMF,
     Wasm,
     XCOFF,
   };

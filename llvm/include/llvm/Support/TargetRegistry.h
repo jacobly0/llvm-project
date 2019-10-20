@@ -95,6 +95,11 @@ MCStreamer *createMachOStreamer(MCContext &Ctx,
                                 std::unique_ptr<MCCodeEmitter> &&CE,
                                 bool RelaxAll, bool DWARFMustBeAtTheEnd,
                                 bool LabelSections = false);
+MCStreamer *createOMFStreamer(MCContext &Ctx,
+                              std::unique_ptr<MCAsmBackend> &&TAB,
+                              std::unique_ptr<MCObjectWriter> &&OW,
+                              std::unique_ptr<MCCodeEmitter> &&CE,
+                              bool RelaxAll);
 MCStreamer *createWasmStreamer(MCContext &Ctx,
                                std::unique_ptr<MCAsmBackend> &&TAB,
                                std::unique_ptr<MCObjectWriter> &&OW,
@@ -513,6 +518,10 @@ public:
     case Triple::XCOFF:
       S = createXCOFFStreamer(Ctx, std::move(TAB), std::move(OW),
                               std::move(Emitter), RelaxAll);
+      break;
+    case Triple::OMF:
+      S = createOMFStreamer(Ctx, std::move(TAB), std::move(OW),
+                            std::move(Emitter), RelaxAll);
       break;
     }
     if (ObjectTargetStreamerCtorFn)

@@ -17,6 +17,7 @@
 #include "llvm/MC/MCSectionCOFF.h"
 #include "llvm/MC/MCSectionELF.h"
 #include "llvm/MC/MCSectionMachO.h"
+#include "llvm/MC/MCSectionOMF.h"
 #include "llvm/MC/MCSectionWasm.h"
 #include "llvm/MC/MCSectionXCOFF.h"
 
@@ -804,6 +805,13 @@ void MCObjectFileInfo::initXCOFFMCObjectFileInfo(const Triple &T) {
   TOCBaseSection->setAlignment(Align(4));
 }
 
+void MCObjectFileInfo::initOMFMCObjectFileInfo(const Triple &T) {
+  TextSection = Ctx->getOMFSection("CODE", SectionKind::getText());
+  DataSection = Ctx->getOMFSection("DATA", SectionKind::getData());
+  BSSSection = Ctx->getOMFSection("BSS", SectionKind::getBSS());
+  ReadOnlySection = Ctx->getOMFSection("TEXT", SectionKind::getReadOnly());
+}
+
 void MCObjectFileInfo::InitMCObjectFileInfo(const Triple &TheTriple, bool PIC,
                                             MCContext &ctx,
                                             bool LargeCodeModel) {
@@ -854,6 +862,10 @@ void MCObjectFileInfo::InitMCObjectFileInfo(const Triple &TheTriple, bool PIC,
     Env = IsXCOFF;
     initXCOFFMCObjectFileInfo(TT);
     break;
+  case Triple::OMF:
+    Env = IsOMF;
+    initOMFMCObjectFileInfo(TT);
+    break;
   case Triple::UnknownObjectFormat:
     report_fatal_error("Cannot initialize MC for unknown object file format.");
     break;
@@ -870,6 +882,7 @@ MCSection *MCObjectFileInfo::getDwarfComdatSection(const char *Name,
   case Triple::COFF:
   case Triple::Wasm:
   case Triple::XCOFF:
+  case Triple::OMF:
   case Triple::UnknownObjectFormat:
     report_fatal_error("Cannot get DWARF comdat section for this object file "
                        "format: not implemented.");

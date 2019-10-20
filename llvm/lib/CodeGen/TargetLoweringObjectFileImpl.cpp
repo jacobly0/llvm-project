@@ -1981,3 +1981,31 @@ MCSection *TargetLoweringObjectFileXCOFF::getSectionForTOCEntry(
       cast<MCSymbolXCOFF>(Sym)->getUnqualifiedName(), XCOFF::XMC_TC,
       XCOFF::XTY_SD, XCOFF::C_HIDEXT, SectionKind::getData());
 }
+
+//===----------------------------------------------------------------------===//
+//                                  OMF
+//===----------------------------------------------------------------------===//
+
+MCSection *TargetLoweringObjectFileOMF::getExplicitSectionGlobal(
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
+  llvm_unreachable("getExplicitSectionGlobal not yet implemented");
+  return nullptr;
+}
+
+MCSection *TargetLoweringObjectFileOMF::SelectSectionForGlobal(
+    const GlobalObject *GO, SectionKind Kind, const TargetMachine &TM) const {
+  const MCObjectFileInfo *MOFI = getContext().getObjectFileInfo();
+  if (Kind.isCommon())
+    // ZDS doesn't support common. It just throws them in BSS and doesn't allow
+    // them to be redefined. RIP.
+    return MOFI->getBSSSection();
+  if (Kind.isText())
+    return MOFI->getTextSection();
+  if (Kind.isData())
+    return MOFI->getDataSection();
+  if (Kind.isBSS())
+    return MOFI->getBSSSection();
+  if (Kind.isReadOnly())
+    return MOFI->getReadOnlySection();
+  return nullptr;
+}

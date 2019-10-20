@@ -215,6 +215,13 @@ file_magic llvm::identify_magic(StringRef Magic) {
       return file_magic::tapi_file;
     break;
 
+  case 0xE0: // IEEE 695 OMF format
+    if (startswith(Magic, "\xE0\11assembler"))
+      return file_magic::omf_object;
+    if (startswith(Magic, "\xE0\7LIBRARY"))
+      return file_magic::omf_archive;
+    break;
+
   default:
     break;
   }
