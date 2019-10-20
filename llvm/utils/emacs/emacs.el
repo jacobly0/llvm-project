@@ -27,6 +27,7 @@
 (add-hook 'c-mode-common-hook
 	  (function
 	   (lambda nil 
-	     (if (string-match "llvm" buffer-file-name)
+	     (if (and buffer-file-name
+                      (string-match "llvm" buffer-file-name))
 		 (progn
 		   (c-set-style "llvm.org"))))))
