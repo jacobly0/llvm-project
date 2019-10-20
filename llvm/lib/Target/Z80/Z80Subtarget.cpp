@@ -13,8 +13,12 @@
 
 #include "Z80Subtarget.h"
 #include "Z80.h"
+#include "Z80CallLowering.h"
+#include "Z80LegalizerInfo.h"
+#include "Z80RegisterBankInfo.h"
 #include "Z80TargetMachine.h"
 #include "MCTargetDesc/Z80MCTargetDesc.h"
+#include "llvm/CodeGen/GlobalISel/InstructionSelect.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "z80-subtarget"
@@ -39,4 +43,10 @@ Z80Subtarget::Z80Subtarget(const Triple &TT, const std::string &CPU,
       In24BitMode(!In16BitMode),
       InstrInfo(initializeSubtargetDependencies(CPU, FS)),
       TLInfo(TM, *this), FrameLowering(*this) {
+  CallLoweringInfo.reset(new Z80CallLowering(*getTargetLowering()));
+  Legalizer.reset(new Z80LegalizerInfo(*this, TM));
+
+  auto *RBI = new Z80RegisterBankInfo(*getRegisterInfo());
+  RegBankInfo.reset(RBI);
+  InstSelector.reset(createZ80InstructionSelector(TM, *this, *RBI));
 }

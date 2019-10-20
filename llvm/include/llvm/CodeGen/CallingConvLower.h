@@ -139,6 +139,10 @@ public:
     isMem = true;
   }
 
+  void setLocInfo(LocInfo NewHTP) {
+    HTP = NewHTP;
+  }
+
   unsigned getValNo() const { return ValNo; }
   MVT getValVT() const { return ValVT; }
 

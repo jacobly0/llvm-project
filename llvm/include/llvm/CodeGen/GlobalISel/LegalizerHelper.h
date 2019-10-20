@@ -76,7 +76,7 @@ public:
 
   /// Legalize an instruction by splitting it into simpler parts, hopefully
   /// understood by the target.
-  LegalizeResult lower(MachineInstr &MI, unsigned TypeIdx, LLT Ty);
+  LegalizeResult lower(MachineInstr &MI, unsigned TypeIdx);
 
   /// Legalize a vector instruction by splitting into multiple components, each
   /// acting on the same scalar type as the original but with fewer elements.

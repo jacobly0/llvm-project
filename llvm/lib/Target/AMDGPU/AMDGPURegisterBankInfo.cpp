@@ -1481,10 +1481,10 @@ void AMDGPURegisterBankInfo::applyMappingImpl(
         llvm_unreachable("widenScalar should have succeeded");
 
       // FIXME: This is relying on widenScalar leaving MI in place.
-      if (Helper.lower(MI, 0, S32) != LegalizerHelper::Legalized)
+      if (Helper.lower(MI, 0) != LegalizerHelper::Legalized)
         llvm_unreachable("lower should have succeeded");
     } else {
-      if (Helper.lower(MI, 0, Ty) != LegalizerHelper::Legalized)
+      if (Helper.lower(MI, 0) != LegalizerHelper::Legalized)
         llvm_unreachable("lower should have succeeded");
     }
 

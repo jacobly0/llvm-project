@@ -244,9 +244,9 @@ namespace CallingConv {
     /// Calling conventions used for special Z80 rtlib functions
     /// which pass in registers and save all registers.
     Z80_LibCall = 100,
-    Z80_LibCall_AC = 101,
-    Z80_LibCall_BC = 102,
-    Z80_LibCall_C = 103,
+    Z80_LibCall_AB = 101,
+    Z80_LibCall_AC = 102,
+    Z80_LibCall_BC = 103,
     Z80_LibCall_L = 104,
     Z80_LibCall_F = 105,
 

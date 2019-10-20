@@ -133,6 +133,7 @@ public:
   bool addRegBankSelect() override;
   bool addGlobalInstructionSelect() override;
   void addFastRegAlloc() override;
+  void addPreRegAlloc() override;
 };
 } // end anonymous namespace
 
@@ -166,4 +167,8 @@ void Z80PassConfig::addFastRegAlloc() {
     addOptimizedRegAlloc();
   else
     TargetPassConfig::addFastRegAlloc();
+}
+
+void Z80PassConfig::addPreRegAlloc() {
+  addPass(createZ80FixupSetCC());
 }

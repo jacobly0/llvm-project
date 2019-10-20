@@ -166,7 +166,7 @@ struct OutgoingValueHandler : public CallLowering::ValueHandler {
     assignValueToReg(NewRegs[0], VA.getLocReg(), VA);
     assignValueToReg(NewRegs[1], NextVA.getLocReg(), NextVA);
 
-    return 1;
+    return 2;
   }
 
   bool assignArg(unsigned ValNo, MVT ValVT, MVT LocVT,
@@ -392,7 +392,7 @@ struct IncomingValueHandler : public CallLowering::ValueHandler {
 
     MIRBuilder.buildMerge(Arg.Regs[0], NewRegs);
 
-    return 1;
+    return 2;
   }
 
   /// Marking a physical register as used is different between formal
