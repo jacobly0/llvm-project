@@ -72,7 +72,7 @@ bool X86CallLowering::splitToValueTypes(const ArgInfo &OrigArg,
   if (NumParts == 1) {
     // replace the original type ( pointer -> GPR ).
     SplitArgs.emplace_back(OrigArg.Regs[0], VT.getTypeForEVT(Context),
-                           OrigArg.Flags, OrigArg.IsFixed);
+                           OrigArg.Val, OrigArg.Flags, OrigArg.IsFixed);
     return true;
   }
 

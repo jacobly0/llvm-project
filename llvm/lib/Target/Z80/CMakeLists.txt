@@ -14,11 +14,15 @@ add_public_tablegen_target(Z80CommonTableGen)
 set(sources
   Z80AsmPrinter.cpp
   Z80CallingConv.cpp
+  Z80CallLowering.cpp
   Z80FrameLowering.cpp
   Z80InstrInfo.cpp
+  Z80InstructionSelector.cpp
   Z80ISelLowering.cpp
+  Z80LegalizerInfo.cpp
   Z80MCInstLower.cpp
   Z80RegisterInfo.cpp
+  Z80RegisterBankInfo.cpp
   Z80Subtarget.cpp
   Z80TargetMachine.cpp
   )

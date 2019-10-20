@@ -266,6 +266,7 @@ Z80TargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case Z80::Cp16ao:
   case Z80::Cp24ao:
   return EmitLoweredCmp(MI, BB);*/
+  case Z80::SetCC:
   case Z80::Select8:
   case Z80::Select16:
   case Z80::Select24:

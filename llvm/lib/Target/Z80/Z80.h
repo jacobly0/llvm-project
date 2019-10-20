@@ -15,11 +15,20 @@
 #ifndef LLVM_LIB_TARGET_Z80_Z80_H
 #define LLVM_LIB_TARGET_Z80_Z80_H
 
-#include "llvm/Support/CodeGen.h"
-
 namespace llvm {
 
 class FunctionPass;
+class InstructionSelector;
+class Z80RegisterBankInfo;
+class Z80Subtarget;
+class Z80TargetMachine;
+
+InstructionSelector *createZ80InstructionSelector(const Z80TargetMachine &TM,
+                                                  Z80Subtarget &,
+                                                  Z80RegisterBankInfo &);
+
+void initializeZ80PreLegalizerCombinerPass(PassRegistry &);
+void initializeZ80PostSelectCombinerPass(PassRegistry &);
 
 } // namespace llvm
 

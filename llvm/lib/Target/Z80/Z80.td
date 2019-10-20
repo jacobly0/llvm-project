@@ -55,6 +55,7 @@ def : Proc<"ez80",        [FeatureZ180, FeatureEZ80, FeatureIdxHalf]>;
 //===----------------------------------------------------------------------===//
 
 include "Z80RegisterInfo.td"
+include "Z80RegisterBanks.td"
 
 //===----------------------------------------------------------------------===//
 // Instruction Descriptions

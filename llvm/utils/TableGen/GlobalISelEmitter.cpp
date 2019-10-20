@@ -4111,7 +4111,7 @@ Expected<action_iterator> GlobalISelEmitter::importExplicitUseRenderer(
       DstMIBuilder.addRenderer<CopyRenderer>(DstChild->getName());
       return InsertPt;
     } else if (DstChild->getOperator()->getName() == "imm") {
-      return failedImport("I don't think this works");
+      //return failedImport("I don't think this works");
       DstMIBuilder.addRenderer<CopyConstantAsImmRenderer>(DstChild->getName());
       return InsertPt;
     } else if (DstChild->getOperator()->getName() == "fpimm") {

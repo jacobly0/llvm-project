@@ -50,13 +50,14 @@ public:
     // if the argument was an incoming arg.
     SmallVector<Register, 2> OrigRegs;
     Type *Ty;
+    const Value *Val;
     SmallVector<ISD::ArgFlagsTy, 4> Flags;
     bool IsFixed;
 
-    ArgInfo(ArrayRef<Register> Regs, Type *Ty,
+    ArgInfo(ArrayRef<Register> Regs, Type *Ty, const Value *V,
             ArrayRef<ISD::ArgFlagsTy> Flags = ArrayRef<ISD::ArgFlagsTy>(),
             bool IsFixed = true)
-        : Regs(Regs.begin(), Regs.end()), Ty(Ty),
+        : Regs(Regs.begin(), Regs.end()), Ty(Ty), Val(V),
           Flags(Flags.begin(), Flags.end()), IsFixed(IsFixed) {
       if (!Regs.empty() && Flags.empty())
         this->Flags.push_back(ISD::ArgFlagsTy());
@@ -64,8 +65,16 @@ public:
       assert((Ty->isVoidTy() == (Regs.empty() || Regs[0] == 0)) &&
              "only void types should have no register");
     }
+    ArgInfo(ArrayRef<Register> Regs, Type *Ty,
+            ArrayRef<ISD::ArgFlagsTy> Flags = ArrayRef<ISD::ArgFlagsTy>(),
+            bool IsFixed = true)
+        : ArgInfo(Regs, Ty, nullptr, Flags, IsFixed) {}
+    ArgInfo(ArrayRef<Register> Regs, const Value *V,
+            ArrayRef<ISD::ArgFlagsTy> Flags = ArrayRef<ISD::ArgFlagsTy>(),
+            bool IsFixed = true)
+        : ArgInfo(Regs, V->getType(), V, Flags, IsFixed) {}
 
-    ArgInfo() : Ty(nullptr), IsFixed(false) {}
+    ArgInfo() : Ty(nullptr), Val(nullptr), IsFixed(false) {}
   };
 
   struct CallLoweringInfo {
@@ -142,9 +151,8 @@ public:
                                       CCValAssign &VA) = 0;
 
     /// Handle custom values, which may be passed into one or more of \p VAs.
-    /// \return The number of \p VAs that have been assigned after the first
-    ///         one, and which should therefore be skipped from further
-    ///         processing.
+    /// \return The number of \p VAs that have been assigned, and which should
+    ///         therefore be skipped from further processing.
     virtual unsigned assignCustomValue(const ArgInfo &Arg,
                                        ArrayRef<CCValAssign> VAs) {
       // This is not a pure virtual method because not all targets need to worry
@@ -159,6 +167,9 @@ public:
                            ISD::ArgFlagsTy Flags, CCState &State) {
       return AssignFn(ValNo, ValVT, LocVT, LocInfo, Flags, State);
     }
+
+    virtual bool prepareArg(CCValAssign &VA) { return true; }
+    virtual bool finalize(CCState &State) { return true; }
 
     MachineIRBuilder &MIRBuilder;
     MachineRegisterInfo &MRI;

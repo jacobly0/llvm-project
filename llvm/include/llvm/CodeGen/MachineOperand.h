@@ -725,6 +725,11 @@ public:
   /// the setImm method should be used.
   void ChangeToImmediate(int64_t ImmVal);
 
+  /// ChangeToCImmediate - Replace this operand with a new CI immediate operand
+  /// of the specified value.  If an operand is known to be an CI immediate
+  /// already, the setCImm method should be used.
+  void ChangeToCImmediate(const ConstantInt *CI);
+
   /// ChangeToFPImmediate - Replace this operand with a new FP immediate operand
   /// of the specified value.  If an operand is known to be an FP immediate
   /// already, the setFPImm method should be used.
