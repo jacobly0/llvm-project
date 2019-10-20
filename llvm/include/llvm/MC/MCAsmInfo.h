@@ -143,9 +143,10 @@ protected:
   const char *InlineAsmEnd;
 
   /// These are assembly directives that tells the assembler to interpret the
-  /// following instructions differently.  Defaults to ".code16", ".code32",
-  /// ".code64".
+  /// following instructions differently.  Defaults to ".code16", ".code24",
+  /// ".code32", ".code64".
   const char *Code16Directive;
+  const char *Code24Directive;
   const char *Code32Directive;
   const char *Code64Directive;
 
@@ -190,9 +191,10 @@ protected:
   /// These directives are used to output some unit of integer data to the
   /// current section.  If a data directive is set to null, smaller data
   /// directives will be used to emit the large sizes.  Defaults to "\t.byte\t",
-  /// "\t.short\t", "\t.long\t", "\t.quad\t"
+  /// "\t.short\t", nullptr, "\t.long\t", "\t.quad\t"
   const char *Data8bitsDirective;
   const char *Data16bitsDirective;
+  const char *Data24bitsDirective;
   const char *Data32bitsDirective;
   const char *Data64bitsDirective;
 
@@ -428,6 +430,7 @@ public:
 
   const char *getData8bitsDirective() const { return Data8bitsDirective; }
   const char *getData16bitsDirective() const { return Data16bitsDirective; }
+  const char *getData24bitsDirective() const { return Data24bitsDirective; }
   const char *getData32bitsDirective() const { return Data32bitsDirective; }
   const char *getData64bitsDirective() const { return Data64bitsDirective; }
   const char *getGPRel64Directive() const { return GPRel64Directive; }
@@ -528,6 +531,7 @@ public:
   const char *getInlineAsmStart() const { return InlineAsmStart; }
   const char *getInlineAsmEnd() const { return InlineAsmEnd; }
   const char *getCode16Directive() const { return Code16Directive; }
+  const char *getCode24Directive() const { return Code24Directive; }
   const char *getCode32Directive() const { return Code32Directive; }
   const char *getCode64Directive() const { return Code64Directive; }
   unsigned getAssemblerDialect() const { return AssemblerDialect; }
@@ -543,10 +547,12 @@ public:
   }
 
   const char *getZeroDirective() const { return ZeroDirective; }
+  virtual const char *getBlockDirective(int64_t Size) const { return nullptr; }
   const char *getAsciiDirective() const { return AsciiDirective; }
   const char *getAscizDirective() const { return AscizDirective; }
   bool getAlignmentIsInBytes() const { return AlignmentIsInBytes; }
   unsigned getTextAlignFillValue() const { return TextAlignFillValue; }
+
   const char *getGlobalDirective() const { return GlobalDirective; }
 
   bool doesSetDirectiveSuppressReloc() const {

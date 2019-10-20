@@ -326,6 +326,18 @@ namespace llvm {
       return getStoreSize() * 8;
     }
 
+    /// getNumParts - Return the number of parts with PartBits bits that make up
+    /// this VT.
+    unsigned getNumParts(unsigned PartBits) const {
+      return (getSizeInBits() + PartBits - 1) / PartBits;
+    }
+
+    /// getNumParts - Return the number of parts of type PartVT that make up
+    /// this VT.
+    unsigned getNumParts(EVT PartVT) const {
+      return getNumParts(PartVT.getSizeInBits());
+    }
+
     /// Rounds the bit-width of the given integer EVT up to the nearest power of
     /// two (and at least to eight), and returns the integer EVT with that
     /// number of bits.

@@ -360,6 +360,57 @@ void LegalizerHelper::buildLCMMerge(Register DstReg, LLT NarrowTy, LLT GCDTy,
 
 static RTLIB::Libcall getRTLibDesc(unsigned Opcode, unsigned Size) {
   switch (Opcode) {
+  case TargetOpcode::G_AND:
+    switch (Size) {
+    case 8:
+      return RTLIB::AND_I8;
+    case 16:
+      return RTLIB::AND_I16;
+    case 24:
+      return RTLIB::AND_I24;
+    case 32:
+      return RTLIB::AND_I32;
+    case 64:
+      return RTLIB::AND_I64;
+    case 128:
+      return RTLIB::AND_I128;
+    default:
+      llvm_unreachable("Unsupported size");
+    }
+  case TargetOpcode::G_OR:
+    switch (Size) {
+    case 8:
+      return RTLIB::OR_I8;
+    case 16:
+      return RTLIB::OR_I16;
+    case 24:
+      return RTLIB::OR_I24;
+    case 32:
+      return RTLIB::OR_I32;
+    case 64:
+      return RTLIB::OR_I64;
+    case 128:
+      return RTLIB::OR_I128;
+    default:
+      llvm_unreachable("Unsupported size");
+    }
+  case TargetOpcode::G_XOR:
+    switch (Size) {
+    case 8:
+      return RTLIB::XOR_I8;
+    case 16:
+      return RTLIB::XOR_I16;
+    case 24:
+      return RTLIB::XOR_I24;
+    case 32:
+      return RTLIB::XOR_I32;
+    case 64:
+      return RTLIB::XOR_I64;
+    case 128:
+      return RTLIB::XOR_I128;
+    default:
+      llvm_unreachable("Unsupported size");
+    }
   case TargetOpcode::G_SDIV:
     switch (Size) {
     case 32:

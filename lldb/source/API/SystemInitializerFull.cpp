@@ -162,6 +162,7 @@ SystemInitializerFull::~SystemInitializerFull() {}
 #define LLDB_PROCESS_Sparc(op)
 #define LLDB_PROCESS_WebAssembly(op)
 #define LLDB_PROCESS_XCore(op)
+#define LLDB_PROCESS_Z80(op)
 
 llvm::Error SystemInitializerFull::Initialize() {
   if (auto e = SystemInitializerCommon::Initialize())

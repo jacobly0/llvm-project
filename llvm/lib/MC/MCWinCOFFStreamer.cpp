@@ -95,6 +95,7 @@ void MCWinCOFFStreamer::EmitAssemblerFlag(MCAssemblerFlag Flag) {
   // None of these require COFF specific handling.
   case MCAF_SyntaxUnified:
   case MCAF_Code16:
+  case MCAF_Code24:
   case MCAF_Code32:
   case MCAF_Code64:
     break;

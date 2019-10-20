@@ -497,6 +497,7 @@ void MCAsmStreamer::EmitAssemblerFlag(MCAssemblerFlag Flag) {
   case MCAF_SyntaxUnified:         OS << "\t.syntax unified"; break;
   case MCAF_SubsectionsViaSymbols: OS << ".subsections_via_symbols"; break;
   case MCAF_Code16:                OS << '\t'<< MAI->getCode16Directive();break;
+  case MCAF_Code24:                OS << '\t'<< MAI->getCode24Directive();break;
   case MCAF_Code32:                OS << '\t'<< MAI->getCode32Directive();break;
   case MCAF_Code64:                OS << '\t'<< MAI->getCode64Directive();break;
   }
@@ -983,6 +984,7 @@ void MCAsmStreamer::EmitValueImpl(const MCExpr *Value, unsigned Size,
   default: break;
   case 1: Directive = MAI->getData8bitsDirective();  break;
   case 2: Directive = MAI->getData16bitsDirective(); break;
+  case 3: Directive = MAI->getData24bitsDirective(); break;
   case 4: Directive = MAI->getData32bitsDirective(); break;
   case 8: Directive = MAI->getData64bitsDirective(); break;
   }
@@ -1108,10 +1110,13 @@ void MCAsmStreamer::emitFill(const MCExpr &NumBytes, uint64_t FillValue,
     if (FillValue != 0)
       OS << ',' << (int)FillValue;
     EmitEOL();
-    return;
-  }
-
-  MCStreamer::emitFill(NumBytes, FillValue);
+  } else if (const char *BlockDirective = MAI->getBlockDirective(1)) {
+    OS << BlockDirective;
+    NumBytes.print(OS, MAI);
+    OS << ", " << FillValue;
+    EmitEOL();
+  } else
+    MCStreamer::emitFill(NumBytes, FillValue);
 }
 
 void MCAsmStreamer::emitFill(const MCExpr &NumValues, int64_t Size,

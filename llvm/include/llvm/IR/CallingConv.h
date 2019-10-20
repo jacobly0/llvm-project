@@ -241,6 +241,15 @@ namespace CallingConv {
     /// The remainder matches the regular calling convention.
     WASM_EmscriptenInvoke = 99,
 
+    /// Calling conventions used for special Z80 rtlib functions
+    /// which pass in registers and save all registers.
+    Z80_LibCall = 100,
+    Z80_LibCall_AB = 101,
+    Z80_LibCall_AC = 102,
+    Z80_LibCall_BC = 103,
+    Z80_LibCall_L = 104,
+    Z80_LibCall_F = 105,
+
     /// The highest possible calling convention ID. Must be some 2^k - 1.
     MaxID = 1023
   };
