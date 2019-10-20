@@ -245,6 +245,17 @@ public:
   static XCOFF::StorageClass getStorageClassForGlobal(const GlobalObject *GO);
 };
 
+class TargetLoweringObjectFileOMF : public TargetLoweringObjectFile {
+public:
+  TargetLoweringObjectFileOMF() = default;
+  ~TargetLoweringObjectFileOMF() override = default;
+
+  MCSection *getExplicitSectionGlobal(const GlobalObject *GO, SectionKind Kind,
+                                      const TargetMachine &TM) const override;
+  MCSection *SelectSectionForGlobal(const GlobalObject *GO, SectionKind Kind,
+                                    const TargetMachine &TM) const override;
+};
+
 } // end namespace llvm
 
 #endif // LLVM_CODEGEN_TARGETLOWERINGOBJECTFILEIMPL_H

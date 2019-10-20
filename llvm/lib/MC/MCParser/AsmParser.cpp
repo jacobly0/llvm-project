@@ -729,6 +729,10 @@ AsmParser::AsmParser(SourceMgr &SM, MCContext &Ctx, MCStreamer &Out,
     report_fatal_error(
         "Need to implement createXCOFFAsmParser for XCOFF format.");
     break;
+  case MCObjectFileInfo::IsOMF:
+    report_fatal_error(
+        "Need to implement createOMFAsmParser for OMF format.");
+    break;
   }
 
   PlatformParser->Initialize(*this);

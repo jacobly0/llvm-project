@@ -136,8 +136,9 @@ ObjectFile::createObjectFile(MemoryBufferRef Object, file_magic Type) {
   case file_magic::windows_resource:
   case file_magic::pdb:
   case file_magic::minidump:
-    return errorCodeToError(object_error::invalid_file_type);
   case file_magic::tapi_file:
+  case file_magic::omf_object:
+  case file_magic::omf_archive:
     return errorCodeToError(object_error::invalid_file_type);
   case file_magic::elf:
   case file_magic::elf_relocatable:

@@ -50,6 +50,7 @@ namespace llvm {
   class MCSectionCOFF;
   class MCSectionELF;
   class MCSectionMachO;
+  class MCSectionOMF;
   class MCSectionWasm;
   class MCSectionXCOFF;
   class MCStreamer;
@@ -93,6 +94,7 @@ namespace llvm {
     SpecificBumpPtrAllocator<MCSectionCOFF> COFFAllocator;
     SpecificBumpPtrAllocator<MCSectionELF> ELFAllocator;
     SpecificBumpPtrAllocator<MCSectionMachO> MachOAllocator;
+    SpecificBumpPtrAllocator<MCSectionOMF> OMFAllocator;
     SpecificBumpPtrAllocator<MCSectionWasm> WasmAllocator;
     SpecificBumpPtrAllocator<MCSectionXCOFF> XCOFFAllocator;
 
@@ -512,6 +514,8 @@ namespace llvm {
                                     XCOFF::StorageClass StorageClass,
                                     SectionKind K,
                                     const char *BeginSymName = nullptr);
+
+    MCSectionOMF *getOMFSection(const Twine &Section, SectionKind Kind);
 
     // Create and save a copy of STI and return a reference to the copy.
     MCSubtargetInfo &getSubtargetCopy(const MCSubtargetInfo &STI);

@@ -2108,6 +2108,7 @@ bool GDBRemoteCommunicationClient::GetCurrentProcessInfo(bool allow_lazy) {
           break;
         case llvm::Triple::Wasm:
         case llvm::Triple::XCOFF:
+        case llvm::Triple::OMF:
           LLDB_LOGF(log, "error: not supported target architecture");
           return false;
         case llvm::Triple::UnknownObjectFormat:

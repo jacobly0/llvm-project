@@ -241,6 +241,8 @@ static bool asanUseGlobalsGC(const Triple &T, const CodeGenOptions &CGOpts) {
     return CGOpts.DataSections && !CGOpts.DisableIntegratedAS;
   case Triple::XCOFF:
     llvm::report_fatal_error("ASan not implemented for XCOFF.");
+  case Triple::OMF:
+    llvm::report_fatal_error("ASan not implemented for OMF.");
   case Triple::Wasm:
   case Triple::UnknownObjectFormat:
     break;
@@ -1569,6 +1571,8 @@ static const char* getSectionNameForBitcode(const Triple &T) {
     return ".llvmbc";
   case Triple::XCOFF:
     llvm_unreachable("XCOFF is not yet implemented");
+  case Triple::OMF:
+    llvm_unreachable("OMF is not yet implemented");
     break;
   }
   llvm_unreachable("Unimplemented ObjectFormatType");
@@ -1585,6 +1589,9 @@ static const char* getSectionNameForCommandline(const Triple &T) {
     return ".llvmcmd";
   case Triple::XCOFF:
     llvm_unreachable("XCOFF is not yet implemented");
+    break;
+  case Triple::OMF:
+    llvm_unreachable("OMF is not yet implemented");
     break;
   }
   llvm_unreachable("Unimplemented ObjectFormatType");
