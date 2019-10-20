@@ -38,12 +38,14 @@ MCAsmInfo::MCAsmInfo() {
   InlineAsmStart = "APP";
   InlineAsmEnd = "NO_APP";
   Code16Directive = ".code16";
+  Code24Directive = ".code24";
   Code32Directive = ".code32";
   Code64Directive = ".code64";
   ZeroDirective = "\t.zero\t";
   AsciiDirective = "\t.ascii\t";
   AscizDirective = "\t.asciz\t";
   Data8bitsDirective = "\t.byte\t";
+  Data24bitsDirective = nullptr;
   Data16bitsDirective = "\t.short\t";
   Data32bitsDirective = "\t.long\t";
   Data64bitsDirective = "\t.quad\t";
