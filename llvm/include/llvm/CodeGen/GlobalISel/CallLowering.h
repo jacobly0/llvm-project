@@ -206,7 +206,8 @@ protected:
   /// \p Callback to move them to the assigned locations.
   ///
   /// \return True if everything has succeeded, false otherwise.
-  bool handleAssignments(MachineIRBuilder &MIRBuilder,
+  bool handleAssignments(CallingConv::ID CallConv, bool IsVarArg,
+                         MachineIRBuilder &MIRBuilder,
                          SmallVectorImpl<ArgInfo> &Args,
                          ValueHandler &Handler) const;
   bool handleAssignments(CCState &CCState,

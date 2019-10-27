@@ -168,13 +168,14 @@ void CallLowering::unpackRegs(ArrayRef<Register> DstRegs, Register SrcReg,
     MIRBuilder.buildExtract(DstRegs[i], SrcReg, Offsets[i]);
 }
 
-bool CallLowering::handleAssignments(MachineIRBuilder &MIRBuilder,
+bool CallLowering::handleAssignments(CallingConv::ID CC, bool isVarArg,
+                                     MachineIRBuilder &MIRBuilder,
                                      SmallVectorImpl<ArgInfo> &Args,
                                      ValueHandler &Handler) const {
   MachineFunction &MF = MIRBuilder.getMF();
   const Function &F = MF.getFunction();
   SmallVector<CCValAssign, 16> ArgLocs;
-  CCState CCInfo(F.getCallingConv(), F.isVarArg(), MF, ArgLocs, F.getContext());
+  CCState CCInfo(CC, isVarArg, MF, ArgLocs, F.getContext());
   return handleAssignments(CCInfo, ArgLocs, MIRBuilder, Args, Handler);
 }
 
@@ -195,12 +196,12 @@ bool CallLowering::handleAssignments(CCState &CCInfo,
       if (!CurVT.isValid())
         return false;
       MVT NewVT = TLI->getRegisterTypeForCallingConv(
-          F.getContext(), F.getCallingConv(), EVT(CurVT));
+          F.getContext(), CCInfo.getCallingConv(), EVT(CurVT));
 
       // If we need to split the type over multiple regs, check it's a scenario
       // we currently support.
       unsigned NumParts = TLI->getNumRegistersForCallingConv(
-          F.getContext(), F.getCallingConv(), CurVT);
+          F.getContext(), CCInfo.getCallingConv(), CurVT);
       if (NumParts > 1) {
         // For now only handle exact splits.
         if (NewVT.getSizeInBits() * NumParts != CurVT.getSizeInBits())
