@@ -397,6 +397,8 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
     return false;
   if (EI1.getNoCfCheck() != EI2.getNoCfCheck())
     return false;
+  if (EI1.getTIFlags() != EI2.getTIFlags())
+    return false;
 
   return true;
 }

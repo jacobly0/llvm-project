@@ -283,6 +283,9 @@ def err_anyx86_interrupt_attribute : Error<
   "a pointer as the first parameter|a %2 type as the second parameter}1">;
 def err_anyx86_interrupt_called : Error<
   "interrupt service routine cannot be called directly">;
+def err_anyz80_interrupt_attribute : Error<
+  "%select{z80|ez80}0 'interrupt' attribute only applies to functions that "
+  "have %select{a 'void' return type|no parameters}1">;
 def warn_arm_interrupt_calling_convention : Warning<
    "call to function without interrupt attribute could clobber interruptee's VFP registers">,
    InGroup<Extra>;

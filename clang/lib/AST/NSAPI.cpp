@@ -483,6 +483,8 @@ NSAPI::getNSNumberFactoryMethodKind(QualType T) const {
   case BuiltinType::PseudoObject:
   case BuiltinType::BuiltinFn:
   case BuiltinType::OMPArraySection:
+  case BuiltinType::Int48:
+  case BuiltinType::UInt48:
     break;
   }
 

@@ -57,6 +57,7 @@ namespace Builtin { struct Info; }
 struct TransferrableTargetInfo {
   unsigned char PointerWidth, PointerAlign;
   unsigned char BoolWidth, BoolAlign;
+  unsigned char ShortWidth, ShortAlign;
   unsigned char IntWidth, IntAlign;
   unsigned char HalfWidth, HalfAlign;
   unsigned char FloatWidth, FloatAlign;
@@ -383,13 +384,10 @@ public:
   unsigned getCharWidth() const { return 8; } // FIXME
   unsigned getCharAlign() const { return 8; } // FIXME
 
-  /// Return the size of 'signed short' and 'unsigned short' for this
-  /// target, in bits.
-  unsigned getShortWidth() const { return 16; } // FIXME
-
-  /// Return the alignment of 'signed short' and 'unsigned short' for
-  /// this target.
-  unsigned getShortAlign() const { return 16; } // FIXME
+  /// getShortWidth/Align - Return the size of 'signed short' and
+  /// 'unsigned short' for this target, in bits.
+  unsigned getShortWidth() const { return ShortWidth; }
+  unsigned getShortAlign() const { return ShortAlign; }
 
   /// getIntWidth/Align - Return the size of 'signed int' and 'unsigned int' for
   /// this target, in bits.
@@ -518,6 +516,11 @@ public:
     return PaddingOnUnsignedFixedPoint ? getLongFractScale()
                                        : getLongFractScale() + 1;
   }
+
+  /// Determine whether the __int48 type is supported on this target.
+  virtual bool hasInt48Type() const {
+    return false;
+  } // FIXME
 
   /// Determine whether the __int128 type is supported on this target.
   virtual bool hasInt128Type() const {

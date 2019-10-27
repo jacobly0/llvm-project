@@ -278,6 +278,7 @@ void ASTTypeWriter::VisitFunctionType(const FunctionType *T) {
   Record.push_back(C.getProducesResult());
   Record.push_back(C.getNoCallerSavedRegs());
   Record.push_back(C.getNoCfCheck());
+  Record.push_back(C.getTIFlags());
 
   if (C.getHasRegParm() || C.getRegParm() || C.getProducesResult())
     AbbrevToUse = 0;
@@ -900,6 +901,7 @@ void ASTWriter::WriteTypeAbbrevs() {
   Abv->Add(BitCodeAbbrevOp(0));                         // ProducesResult
   Abv->Add(BitCodeAbbrevOp(0));                         // NoCallerSavedRegs
   Abv->Add(BitCodeAbbrevOp(0));                         // NoCfCheck
+  Abv->Add(BitCodeAbbrevOp(0));                         // TIFlags
   // FunctionProtoType
   Abv->Add(BitCodeAbbrevOp(0));                         // IsVariadic
   Abv->Add(BitCodeAbbrevOp(0));                         // HasTrailingReturn
@@ -4764,6 +4766,8 @@ ASTFileSignature ASTWriter::WriteASTCore(Sema &SemaRef, StringRef isysroot,
   RegisterPredefDecl(Context.ObjCClassDecl, PREDEF_DECL_OBJC_CLASS_ID);
   RegisterPredefDecl(Context.ObjCProtocolClassDecl,
                      PREDEF_DECL_OBJC_PROTOCOL_ID);
+  RegisterPredefDecl(Context.Int48Decl, PREDEF_DECL_INT_48_ID);
+  RegisterPredefDecl(Context.UInt48Decl, PREDEF_DECL_UNSIGNED_INT_48_ID);
   RegisterPredefDecl(Context.Int128Decl, PREDEF_DECL_INT_128_ID);
   RegisterPredefDecl(Context.UInt128Decl, PREDEF_DECL_UNSIGNED_INT_128_ID);
   RegisterPredefDecl(Context.ObjCInstanceTypeDecl,

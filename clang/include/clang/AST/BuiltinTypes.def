@@ -89,6 +89,9 @@ UNSIGNED_TYPE(UInt, UnsignedIntTy)
 // 'unsigned long'
 UNSIGNED_TYPE(ULong, UnsignedLongTy)
 
+// '__uint48_t'
+UNSIGNED_TYPE(UInt48, UnsignedInt48Ty)
+
 // 'unsigned long long'
 UNSIGNED_TYPE(ULongLong, UnsignedLongLongTy)
 
@@ -114,6 +117,9 @@ SIGNED_TYPE(Int, IntTy)
 
 // 'long' or 'signed long'
 SIGNED_TYPE(Long, LongTy)
+
+// '__int48_t'
+SIGNED_TYPE(Int48, Int48Ty)
 
 // 'long long' or 'signed long long'
 SIGNED_TYPE(LongLong, LongLongTy)

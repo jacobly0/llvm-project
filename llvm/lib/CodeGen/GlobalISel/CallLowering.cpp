@@ -59,6 +59,7 @@ bool CallLowering::lowerCall(MachineIRBuilder &MIRBuilder, ImmutableCallSite CS,
   if (!Info.OrigRet.Ty->isVoidTy())
     setArgFlags(Info.OrigRet, AttributeList::ReturnIndex, DL, CS);
 
+  Info.CallAttributes = CS.getAttributes();
   Info.KnownCallees =
       CS.getInstruction()->getMetadata(LLVMContext::MD_callees);
   Info.CallConv = CS.getCallingConv();

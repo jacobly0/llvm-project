@@ -78,6 +78,9 @@ public:
   };
 
   struct CallLoweringInfo {
+    /// Attributes attached to the call.
+    AttributeList CallAttributes;
+
     /// Calling convention to be used for the call.
     CallingConv::ID CallConv = CallingConv::C;
 
