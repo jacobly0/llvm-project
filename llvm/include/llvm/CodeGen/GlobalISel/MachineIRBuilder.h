@@ -488,6 +488,39 @@ public:
                                  const SrcOp &Op0, const SrcOp &Op1,
                                  const SrcOp &CarryIn);
 
+  /// Build and insert \p Res, \p BorrowOut = G_USUBO \p Op0, \p Op1
+  ///
+  /// G_USUBO sets \p Res to \p Op0 + \p Op1 (truncated to the bit width) and
+  /// sets \p BorrowOut to 1 if the result overflowed in unsigned arithmetic.
+  ///
+  /// \pre setBasicBlock or setMI must have been called.
+  /// \pre \p Res, \p Op0 and \p Op1 must be generic virtual registers with the
+  /// same scalar type.
+  ////\pre \p BorrowOut must be generic virtual register with scalar type
+  ///(typically s1)
+  ///
+  /// \return The newly created instruction.
+  MachineInstrBuilder buildUSubo(const DstOp &Res, const DstOp &BorrowOut,
+                                 const SrcOp &Op0, const SrcOp &Op1);
+
+  /// Build and insert \p Res, \p BorrowOut = G_USUBE \p Op0,
+  /// \p Op1, \p BorrowIn
+  ///
+  /// G_USUBE sets \p Res to \p Op0 - \p Op1 - \p BorrowIn (truncated to the bit
+  /// width) and sets \p BorrowOut to 1 if the result underflowed in unsigned
+  /// arithmetic.
+  ///
+  /// \pre setBasicBlock or setMI must have been called.
+  /// \pre \p Res, \p Op0 and \p Op1 must be generic virtual registers
+  ///      with the same scalar type.
+  /// \pre \p BorrowOut and \p BorrowIn must be generic virtual
+  ///      registers with the same scalar type (typically s1)
+  ///
+  /// \return The newly created instruction.
+  MachineInstrBuilder buildUSube(const DstOp &Res, const DstOp &BorrowOut,
+                                 const SrcOp &Op0, const SrcOp &Op1,
+                                 const SrcOp &BorrowIn);
+
   /// Build and insert \p Res = G_ANYEXT \p Op0
   ///
   /// G_ANYEXT produces a register of the specified width, with bits 0 to
