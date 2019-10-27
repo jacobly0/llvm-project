@@ -4338,6 +4338,17 @@ GlobalISelEmitter::createAndImportSubInstructionRenderer(
     return InsertPtOrError.get();
   }
 
+  if (OpName == "REG_SEQUENCE") {
+    auto SuperClass = inferSuperRegisterClassForNode(
+        Dst->getExtType(0), Dst->getChild(0), Dst->getChild(2));
+    if (!SuperClass)
+      return failedImport(
+          "Cannot infer register class for REG_SEQUENCE operand #0");
+    M.insertAction<ConstrainOperandToRegClassAction>(
+        InsertPt, DstMIBuilder.getInsnID(), 0, **SuperClass);
+    return InsertPtOrError.get();
+  }
+
   M.insertAction<ConstrainOperandsToDefinitionAction>(InsertPt,
                                                       DstMIBuilder.getInsnID());
   return InsertPtOrError.get();
@@ -4995,6 +5006,20 @@ Expected<RuleMatcher> GlobalISelEmitter::runOnPattern(const PatternToMatch &P) {
           "Cannot infer register class for SUBREG_TO_REG operand #0");
     M.addAction<ConstrainOperandToRegClassAction>(0, 0, **SuperClass);
     M.addAction<ConstrainOperandToRegClassAction>(0, 2, **SubClass);
+    ++NumPatternImported;
+    return std::move(M);
+  }
+
+  if (DstIName == "REG_SEQUENCE") {
+    // We need to constrain the destination.
+    assert(Src->getExtTypes().size() == 1 &&
+           "Expected Src of REG_SEQUENCE to have one result type");
+    auto SuperClass = inferSuperRegisterClassForNode(
+        Src->getExtType(0), Dst->getChild(0), Dst->getChild(2));
+    if (!SuperClass)
+      return failedImport(
+          "Cannot infer register class for REG_SEQUENCE operand #0");
+    M.addAction<ConstrainOperandToRegClassAction>(0, 0, **SuperClass);
     ++NumPatternImported;
     return std::move(M);
   }
