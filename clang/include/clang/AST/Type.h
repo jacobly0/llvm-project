@@ -1556,7 +1556,7 @@ protected:
 
     /// Extra information which affects how the function is called, like
     /// regparm and the calling convention.
-    unsigned ExtInfo : 12;
+    unsigned ExtInfo : 13;
 
     /// The ref-qualifier associated with a \c FunctionProtoType.
     ///
@@ -3533,12 +3533,12 @@ public:
   class ExtInfo {
     friend class FunctionType;
 
-    // Feel free to rearrange or add bits, but if you go over 12,
+    // Feel free to rearrange or add bits, but if you go over 13,
     // you'll need to adjust both the Bits field below and
     // Type::FunctionTypeBitfields.
 
-    //   |  CC  |noreturn|produces|nocallersavedregs|regparm|nocfcheck|
-    //   |0 .. 4|   5    |    6   |       7         |8 .. 10|    11   |
+    //   |  CC  |noreturn|produces|nocallersavedregs|regparm|nocfcheck|tiflags|
+    //   |0 .. 4|   5    |    6   |       7         |8 .. 10|    11   |   12  |
     //
     // regparm is either 0 (no regparm attribute) or the regparm value+1.
     enum { CallConvMask = 0x1F };
@@ -3546,26 +3546,28 @@ public:
     enum { ProducesResultMask = 0x40 };
     enum { NoCallerSavedRegsMask = 0x80 };
     enum { NoCfCheckMask = 0x800 };
+    enum { TIFlagsMask = 0x1000 };
     enum {
       RegParmMask = ~(CallConvMask | NoReturnMask | ProducesResultMask |
-                      NoCallerSavedRegsMask | NoCfCheckMask),
+                      NoCallerSavedRegsMask | NoCfCheckMask | TIFlagsMask),
       RegParmOffset = 8
     }; // Assumed to be the last field
     uint16_t Bits = CC_C;
 
     ExtInfo(unsigned Bits) : Bits(static_cast<uint16_t>(Bits)) {}
 
-   public:
-     // Constructor with no defaults. Use this when you know that you
-     // have all the elements (when reading an AST file for example).
-     ExtInfo(bool noReturn, bool hasRegParm, unsigned regParm, CallingConv cc,
-             bool producesResult, bool noCallerSavedRegs, bool NoCfCheck) {
-       assert((!hasRegParm || regParm < 7) && "Invalid regparm value");
-       Bits = ((unsigned)cc) | (noReturn ? NoReturnMask : 0) |
-              (producesResult ? ProducesResultMask : 0) |
-              (noCallerSavedRegs ? NoCallerSavedRegsMask : 0) |
-              (hasRegParm ? ((regParm + 1) << RegParmOffset) : 0) |
-              (NoCfCheck ? NoCfCheckMask : 0);
+  public:
+    // Constructor with no defaults. Use this when you know that you
+    // have all the elements (when reading an AST file for example).
+    ExtInfo(bool noReturn, bool hasRegParm, unsigned regParm, CallingConv cc,
+            bool producesResult, bool noCallerSavedRegs, bool NoCfCheck,
+            bool TIFlags) {
+      assert((!hasRegParm || regParm < 7) && "Invalid regparm value");
+      Bits = ((unsigned)cc) | (noReturn ? NoReturnMask : 0) |
+             (producesResult ? ProducesResultMask : 0) |
+             (noCallerSavedRegs ? NoCallerSavedRegsMask : 0) |
+             (hasRegParm ? ((regParm + 1) << RegParmOffset) : 0) |
+             (NoCfCheck ? NoCfCheckMask : 0) | (TIFlags ? TIFlagsMask : 0);
     }
 
     // Constructor with all defaults. Use when for example creating a
@@ -3580,6 +3582,7 @@ public:
     bool getProducesResult() const { return Bits & ProducesResultMask; }
     bool getNoCallerSavedRegs() const { return Bits & NoCallerSavedRegsMask; }
     bool getNoCfCheck() const { return Bits & NoCfCheckMask; }
+    bool getTIFlags() const { return Bits & TIFlagsMask; }
     bool getHasRegParm() const { return (Bits >> RegParmOffset) != 0; }
 
     unsigned getRegParm() const {
@@ -3627,6 +3630,13 @@ public:
         return ExtInfo(Bits | NoCfCheckMask);
       else
         return ExtInfo(Bits & ~NoCfCheckMask);
+    }
+
+    ExtInfo withTIFlags(bool tiFlags) const {
+      if (tiFlags)
+        return ExtInfo(Bits | TIFlagsMask);
+      else
+        return ExtInfo(Bits & ~TIFlagsMask);
     }
 
     ExtInfo withRegParm(unsigned RegParm) const {

@@ -752,6 +752,8 @@ void USRGenerator::VisitType(QualType T) {
         case BuiltinType::SatUShortFract:
         case BuiltinType::SatUFract:
         case BuiltinType::SatULongFract:
+        case BuiltinType::UInt48:
+        case BuiltinType::Int48:
           IgnoreResults = true;
           return;
         case BuiltinType::ObjCId:

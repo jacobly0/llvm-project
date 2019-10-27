@@ -524,6 +524,9 @@ class CGFunctionInfo final
   /// Whether this function has nocf_check attribute.
   unsigned NoCfCheck : 1;
 
+  /// Whether this function has tiflags attribute.
+  unsigned TIFlags : 1;
+
   RequiredArgs Required;
 
   /// The struct representing all arguments passed in memory.  Only used when
@@ -610,6 +613,9 @@ public:
   /// Whether this function has nocf_check attribute.
   bool isNoCfCheck() const { return NoCfCheck; }
 
+  /// Whether this function has tiflags attribute.
+  bool isTIFlags() const { return TIFlags; }
+
   /// getASTCallingConvention() - Return the AST-specified calling
   /// convention.
   CallingConv getASTCallingConvention() const {
@@ -633,9 +639,9 @@ public:
   unsigned getRegParm() const { return RegParm; }
 
   FunctionType::ExtInfo getExtInfo() const {
-    return FunctionType::ExtInfo(isNoReturn(), getHasRegParm(), getRegParm(),
-                                 getASTCallingConvention(), isReturnsRetained(),
-                                 isNoCallerSavedRegs(), isNoCfCheck());
+    return FunctionType::ExtInfo(
+        isNoReturn(), getHasRegParm(), getRegParm(), getASTCallingConvention(),
+        isReturnsRetained(), isNoCallerSavedRegs(), isNoCfCheck(), isTIFlags());
   }
 
   CanQualType getReturnType() const { return getArgsBuffer()[0].type; }
@@ -676,6 +682,7 @@ public:
     ID.AddBoolean(HasRegParm);
     ID.AddInteger(RegParm);
     ID.AddBoolean(NoCfCheck);
+    ID.AddBoolean(TIFlags);
     ID.AddInteger(Required.getOpaqueData());
     ID.AddBoolean(HasExtParameterInfos);
     if (HasExtParameterInfos) {
@@ -703,6 +710,7 @@ public:
     ID.AddBoolean(info.getHasRegParm());
     ID.AddInteger(info.getRegParm());
     ID.AddBoolean(info.getNoCfCheck());
+    ID.AddBoolean(info.getTIFlags());
     ID.AddInteger(required.getOpaqueData());
     ID.AddBoolean(!paramInfos.empty());
     if (!paramInfos.empty()) {

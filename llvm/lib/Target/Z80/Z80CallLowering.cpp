@@ -388,6 +388,16 @@ bool Z80CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
                          Handler))
     return false;
 
+  if (Info.CallAttributes.hasFnAttribute("tiflags")) {
+    MVT VT = Is24Bit ? MVT::i24 : MVT::i16;
+    Register FlagsReg =
+        MIRBuilder.buildConstant(LLT(VT), STI.hasEZ80Ops() ? 0xD00080 : 0x89F0)
+            .getReg(0);
+    CCValAssign VA = CCValAssign::getReg(
+        ~0, VT, Is24Bit ? Z80::UIY : Z80::IY, VT, CCValAssign::Full);
+    Handler.assignValueToReg(FlagsReg, VA.getLocReg(), VA);
+  }
+
   // Now we can add the actual call instruction to the correct basic block.
   MIRBuilder.insertInstr(MIB);
 

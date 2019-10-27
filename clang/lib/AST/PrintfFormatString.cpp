@@ -748,6 +748,8 @@ bool PrintfSpecifier::fixType(QualType QT, const LangOptions &LangOpt,
   case BuiltinType::Char8: // FIXME: Treat like 'char'?
   case BuiltinType::Char16:
   case BuiltinType::Char32:
+  case BuiltinType::UInt48:
+  case BuiltinType::Int48:
   case BuiltinType::UInt128:
   case BuiltinType::Int128:
   case BuiltinType::Half:

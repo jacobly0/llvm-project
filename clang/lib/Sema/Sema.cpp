@@ -232,6 +232,19 @@ void Sema::Initialize() {
   if (!TUScope)
     return;
 
+  // Initialize predefined 48-bit integer types, if needed.
+  if (Context.getTargetInfo().hasInt48Type()) {
+    // If either of the 48-bit integer types are unavailable to name lookup,
+    // define them now.
+    DeclarationName Int48 = &Context.Idents.get("__int48_t");
+    if (IdResolver.begin(Int48) == IdResolver.end())
+      PushOnScopeChains(Context.getInt48Decl(), TUScope);
+
+    DeclarationName UInt48 = &Context.Idents.get("__uint48_t");
+    if (IdResolver.begin(UInt48) == IdResolver.end())
+      PushOnScopeChains(Context.getUInt48Decl(), TUScope);
+  }
+
   // Initialize predefined 128-bit integer types, if needed.
   if (Context.getTargetInfo().hasInt128Type()) {
     // If either of the 128-bit integer types are unavailable to name lookup,

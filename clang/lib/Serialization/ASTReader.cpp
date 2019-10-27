@@ -6762,6 +6762,9 @@ QualType ASTReader::GetType(TypeID ID) {
     case PREDEF_TYPE_ULONG_ID:
       T = Context.UnsignedLongTy;
       break;
+    case PREDEF_TYPE_UINT48_ID:
+      T = Context.UnsignedInt48Ty;
+      break;
     case PREDEF_TYPE_ULONGLONG_ID:
       T = Context.UnsignedLongLongTy;
       break;
@@ -6782,6 +6785,9 @@ QualType ASTReader::GetType(TypeID ID) {
       break;
     case PREDEF_TYPE_LONG_ID:
       T = Context.LongTy;
+      break;
+    case PREDEF_TYPE_INT48_ID:
+      T = Context.Int48Ty;
       break;
     case PREDEF_TYPE_LONGLONG_ID:
       T = Context.LongLongTy;
@@ -7258,6 +7264,12 @@ static Decl *getPredefinedDecl(ASTContext &Context, PredefinedDeclIDs ID) {
 
   case PREDEF_DECL_OBJC_PROTOCOL_ID:
     return Context.getObjCProtocolDecl();
+
+  case PREDEF_DECL_INT_48_ID:
+    return Context.getInt48Decl();
+
+  case PREDEF_DECL_UNSIGNED_INT_48_ID:
+    return Context.getUInt48Decl();
 
   case PREDEF_DECL_INT_128_ID:
     return Context.getInt128Decl();

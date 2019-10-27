@@ -493,6 +493,11 @@ llvm::Type *CodeGenTypes::ConvertType(QualType T) {
       ResultType = llvm::Type::getInt8PtrTy(getLLVMContext());
       break;
 
+    case BuiltinType::UInt48:
+    case BuiltinType::Int48:
+      ResultType = llvm::IntegerType::get(getLLVMContext(), 48);
+      break;
+
     case BuiltinType::UInt128:
     case BuiltinType::Int128:
       ResultType = llvm::IntegerType::get(getLLVMContext(), 128);

@@ -3670,6 +3670,15 @@ pointer (by adding nocf_check prefix to the indirect-call instruction).
 }];
 }
 
+def AnyZ80TIFlagsDocs : Documentation {
+  let Category = DocCatFunction;
+  let Content = [{
+TIOS, which runs on (e)Z80 processors, have a lot of system routines that expect
+the IY register to contain a specific value.  This attribute marks calls whose
+calling convention should be changed appropriately.
+}];
+}
+
 def SwiftCallDocs : Documentation {
   let Category = DocCatVariable;
   let Content = [{

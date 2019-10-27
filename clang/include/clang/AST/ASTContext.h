@@ -304,6 +304,12 @@ class ASTContext : public RefCountedBase<ASTContext> {
   TemplateTemplateParmDecl *
     getCanonicalTemplateTemplateParmDecl(TemplateTemplateParmDecl *TTP) const;
 
+  /// The typedef for the __int48_t type.
+  mutable TypedefDecl *Int48Decl = nullptr;
+
+  /// The typedef for the __uint48_t type.
+  mutable TypedefDecl *UInt48Decl = nullptr;
+
   /// The typedef for the __int128_t type.
   mutable TypedefDecl *Int128Decl = nullptr;
 
@@ -954,9 +960,10 @@ public:
   CanQualType Char8Ty;  // [C++20 proposal]
   CanQualType Char16Ty; // [C++0x 3.9.1p5], integer type in C99.
   CanQualType Char32Ty; // [C++0x 3.9.1p5], integer type in C99.
-  CanQualType SignedCharTy, ShortTy, IntTy, LongTy, LongLongTy, Int128Ty;
+  CanQualType SignedCharTy, ShortTy, IntTy, LongTy, Int48Ty, LongLongTy,
+      Int128Ty;
   CanQualType UnsignedCharTy, UnsignedShortTy, UnsignedIntTy, UnsignedLongTy;
-  CanQualType UnsignedLongLongTy, UnsignedInt128Ty;
+  CanQualType UnsignedInt48Ty, UnsignedLongLongTy, UnsignedInt128Ty;
   CanQualType FloatTy, DoubleTy, LongDoubleTy, Float128Ty;
   CanQualType ShortAccumTy, AccumTy,
       LongAccumTy;  // ISO/IEC JTC1 SC22 WG14 N1169 Extension
@@ -1045,6 +1052,12 @@ public:
 
   /// Create a new implicit TU-level typedef declaration.
   TypedefDecl *buildImplicitTypedef(QualType T, StringRef Name) const;
+
+  /// Retrieve the declaration for the 48-bit signed integer type.
+  TypedefDecl *getInt48Decl() const;
+
+  /// Retrieve the declaration for the 48-bit unsigned integer type.
+  TypedefDecl *getUInt48Decl() const;
 
   /// Retrieve the declaration for the 128-bit signed integer type.
   TypedefDecl *getInt128Decl() const;

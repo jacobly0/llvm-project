@@ -753,6 +753,9 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   if (LangOpts.FastMath)
     Builder.defineMacro("__FAST_MATH__");
 
+  if (!LangOpts.CharIsSigned)
+    Builder.defineMacro("__CHAR_UNSIGNED__");
+
   // Initialize target-specific preprocessor defines.
 
   // __BYTE_ORDER__ was added in GCC 4.6. It's analogous
@@ -786,12 +789,22 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   // Define type sizing macros based on the target properties.
   assert(TI.getCharWidth() == 8 && "Only support 8-bit char so far");
   Builder.defineMacro("__CHAR_BIT__", Twine(TI.getCharWidth()));
+  DefineTypeSize("__CHAR_MAX__",
+                 LangOpts.CharIsSigned ? TargetInfo::SignedChar
+                                       : TargetInfo::UnsignedChar, TI, Builder);
 
   DefineTypeSize("__SCHAR_MAX__", TargetInfo::SignedChar, TI, Builder);
   DefineTypeSize("__SHRT_MAX__", TargetInfo::SignedShort, TI, Builder);
   DefineTypeSize("__INT_MAX__", TargetInfo::SignedInt, TI, Builder);
   DefineTypeSize("__LONG_MAX__", TargetInfo::SignedLong, TI, Builder);
   DefineTypeSize("__LONG_LONG_MAX__", TargetInfo::SignedLongLong, TI, Builder);
+
+  DefineTypeSize("__UCHAR_MAX__", TargetInfo::UnsignedChar, TI, Builder);
+  DefineTypeSize("__USHRT_MAX__", TargetInfo::UnsignedShort, TI, Builder);
+  DefineTypeSize("__UINT_MAX__", TargetInfo::UnsignedInt, TI, Builder);
+  DefineTypeSize("__ULONG_MAX__", TargetInfo::UnsignedLong, TI, Builder);
+  DefineTypeSize("__ULONG_LONG_MAX__", TargetInfo::UnsignedLongLong, TI, Builder);
+
   DefineTypeSize("__WCHAR_MAX__", TI.getWCharType(), TI, Builder);
   DefineTypeSize("__WINT_MAX__", TI.getWIntType(), TI, Builder);
   DefineTypeSize("__INTMAX_MAX__", TI.getIntMaxType(), TI, Builder);
@@ -818,6 +831,8 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
                    TI.getTypeWidth(TI.getWCharType()), TI, Builder);
   DefineTypeSizeof("__SIZEOF_WINT_T__",
                    TI.getTypeWidth(TI.getWIntType()), TI, Builder);
+  if (TI.hasInt48Type())
+    DefineTypeSizeof("__SIZEOF_INT48__", 48, TI, Builder);
   if (TI.hasInt128Type())
     DefineTypeSizeof("__SIZEOF_INT128__", 128, TI, Builder);
 
@@ -1097,6 +1112,14 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
 
     if (TI.getTriple().isSPIR())
       Builder.defineMacro("__IMAGE_SUPPORT__");
+  }
+
+  if (TI.hasInt48Type() && LangOpts.CPlusPlus && LangOpts.GNUMode) {
+    // For each extended integer type, g++ defines a macro mapping the
+    // index of the type (0 in this case) in some list of extended types
+    // to the type.
+    Builder.defineMacro("__GLIBCXX_TYPE_INT_N_0", "__int48");
+    Builder.defineMacro("__GLIBCXX_BITSIZE_INT_N_0", "48");
   }
 
   if (TI.hasInt128Type() && LangOpts.CPlusPlus && LangOpts.GNUMode) {
