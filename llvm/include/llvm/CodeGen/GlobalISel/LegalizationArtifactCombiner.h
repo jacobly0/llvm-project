@@ -406,17 +406,6 @@ public:
     return true;
   }
 
-  static bool isMergeLikeOpcode(unsigned Opc) {
-    switch (Opc) {
-    case TargetOpcode::G_MERGE_VALUES:
-    case TargetOpcode::G_BUILD_VECTOR:
-    case TargetOpcode::G_CONCAT_VECTORS:
-      return true;
-    default:
-      return false;
-    }
-  }
-
   bool tryCombineExtract(MachineInstr &MI,
                          SmallVectorImpl<MachineInstr *> &DeadInsts,
                          SmallVectorImpl<Register> &UpdatedDefs) {
@@ -435,34 +424,94 @@ public:
     //    %3 = G_EXTRACT %1, (N - %0.getSizeInBits()
 
     Register SrcReg = lookThroughCopyInstrs(MI.getOperand(1).getReg());
-    MachineInstr *MergeI = MRI.getVRegDef(SrcReg);
-    if (!MergeI || !isMergeLikeOpcode(MergeI->getOpcode()))
+    MachineInstr *SrcI = MRI.getVRegDef(SrcReg);
+    if (!SrcI)
       return false;
 
     Register DstReg = MI.getOperand(0).getReg();
-    LLT DstTy = MRI.getType(DstReg);
-    LLT SrcTy = MRI.getType(SrcReg);
+    LLT ExtractTy = MRI.getType(DstReg);
+    unsigned ExtractSize = ExtractTy.getSizeInBits();
+    LLT ExtractSrcTy = MRI.getType(SrcReg);
+    unsigned ExtractSrcSize = ExtractSrcTy.getSizeInBits();
+    unsigned ExtractOffset = MI.getOperand(2).getImm();
 
-    // TODO: Do we need to check if the resulting extract is supported?
-    unsigned ExtractDstSize = DstTy.getSizeInBits();
-    unsigned Offset = MI.getOperand(2).getImm();
-    unsigned NumMergeSrcs = MergeI->getNumOperands() - 1;
-    unsigned MergeSrcSize = SrcTy.getSizeInBits() / NumMergeSrcs;
-    unsigned MergeSrcIdx = Offset / MergeSrcSize;
-
-    // Compute the offset of the last bit the extract needs.
-    unsigned EndMergeSrcIdx = (Offset + ExtractDstSize - 1) / MergeSrcSize;
-
-    // Can't handle the case where the extract spans multiple inputs.
-    if (MergeSrcIdx != EndMergeSrcIdx)
-      return false;
-
-    // TODO: We could modify MI in place in most cases.
     Builder.setInstr(MI);
-    Builder.buildExtract(DstReg, MergeI->getOperand(MergeSrcIdx + 1).getReg(),
-                         Offset - MergeSrcIdx * MergeSrcSize);
+    switch (SrcI->getOpcode()) {
+    case TargetOpcode::G_IMPLICIT_DEF:
+      Builder.buildUndef(DstReg);
+      break;
+    case TargetOpcode::G_INSERT: {
+      // Try to look through insert
+      //
+      // %2 = G_INSERT %1, %0, N0
+      // %3 = G_EXTRACT %2, N1
+      // =>
+      //
+      // if N0 == N1 && %0.size == %3.size
+      //     %3 = COPY %0
+      // else if N0 <= N1 && N0 + %0.size >= N1 + %3.size
+      //     %3 = G_EXTRACT %0, (N1 - N0)
+      // else if N0 >= N1 + %3.size || N0 + %0.size >= N1
+      //     %3 = G_EXTRACT %1, N1
+
+      Register InsertSrcReg = SrcI->getOperand(1).getReg();
+      Register InsertReg = SrcI->getOperand(2).getReg();
+      LLT InsertTy = MRI.getType(InsertReg);
+      unsigned InsertSize = InsertTy.getSizeInBits();
+      unsigned InsertOffset = SrcI->getOperand(3).getImm();
+      if (InsertOffset == ExtractOffset && InsertSize == ExtractSize)
+        // intervals are equal, use inserted value directly
+        Builder.buildCopy(DstReg, InsertReg);
+      else if (InsertOffset <= ExtractOffset &&
+               InsertOffset + InsertSize >= ExtractOffset + ExtractSize)
+        // extract interval subset of insert interval
+        // extract from inserted value instead
+        Builder.buildExtract(DstReg, InsertReg, ExtractOffset - InsertOffset);
+      else if (InsertOffset >= ExtractOffset + ExtractSize ||
+               InsertOffset + InsertSize >= ExtractOffset)
+        // intervals are disjoint, extract from insert source instead
+        Builder.buildExtract(DstReg, InsertSrcReg, ExtractOffset);
+      else
+        // Can't handle the case where the extract spans insert source and value
+        return false;
+      break;
+    }
+    case TargetOpcode::G_MERGE_VALUES:
+    case TargetOpcode::G_BUILD_VECTOR:
+    case TargetOpcode::G_CONCAT_VECTORS: {
+      // TODO: Do we need to check if the resulting extract is supported?
+      unsigned NumMergeSrcs = SrcI->getNumOperands() - 1;
+      unsigned MergeSrcSize = ExtractSrcSize / NumMergeSrcs;
+      unsigned MergeSrcIdx = ExtractOffset / MergeSrcSize;
+
+      // Compute the offset of the last bit the extract needs.
+      unsigned EndMergeSrcIdx = (ExtractOffset + ExtractSize - 1) / MergeSrcSize;
+
+      Register MergeSrcReg;
+      if (MergeSrcIdx != EndMergeSrcIdx) {
+        // Create a sub-merge to extract from.
+        unsigned NumSubSrcs = EndMergeSrcIdx - MergeSrcIdx + 1;
+        SmallVector<Register, 3> SubRegs;
+        SubRegs.reserve(NumSubSrcs);
+        for (unsigned Idx = MergeSrcIdx; Idx <= EndMergeSrcIdx; ++Idx)
+          SubRegs.push_back(SrcI->getOperand(Idx + 1).getReg());
+        auto SubMerge =
+            Builder.buildMerge(LLT::scalar(MergeSrcSize * NumSubSrcs), SubRegs);
+        MergeSrcReg = SubMerge->getOperand(0).getReg();
+      } else
+        MergeSrcReg = SrcI->getOperand(MergeSrcIdx + 1).getReg();
+
+      // TODO: We could modify MI in place in most cases.
+      Builder.buildExtract(DstReg, SrcI->getOperand(MergeSrcIdx + 1).getReg(),
+                           ExtractOffset - MergeSrcIdx * MergeSrcSize);
+      break;
+    }
+    default:
+      return false;
+    }
+
     UpdatedDefs.push_back(DstReg);
-    markInstAndDefDead(MI, *MergeI, DeadInsts);
+    markInstAndDefDead(MI, *SrcI, DeadInsts);
     return true;
   }
 

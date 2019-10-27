@@ -525,6 +525,14 @@ bool LegalizerInfo::legalizeCustom(MachineInstr &MI, MachineRegisterInfo &MRI,
   return false;
 }
 
+LegalizerHelper::LegalizeResult LegalizerInfo::legalizeCustom(
+    MachineInstr &MI, MachineRegisterInfo &MRI, MachineIRBuilder &MIRBuilder,
+    GISelChangeObserver &Observer, LegalizerHelper &Helper) const {
+  return legalizeCustom(MI, MRI, MIRBuilder, Observer)
+             ? LegalizerHelper::Legalized
+             : LegalizerHelper::UnableToLegalize;
+}
+
 LegalizerInfo::SizeAndActionsVec
 LegalizerInfo::increaseToLargerTypesAndDecreaseToLargest(
     const SizeAndActionsVec &v, LegalizeAction IncreaseAction,

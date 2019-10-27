@@ -414,6 +414,22 @@ MachineInstrBuilder MachineIRBuilder::buildUAdde(const DstOp &Res,
                     {Op0, Op1, CarryIn});
 }
 
+MachineInstrBuilder MachineIRBuilder::buildUSubo(const DstOp &Res,
+                                                 const DstOp &BorrowOut,
+                                                 const SrcOp &Op0,
+                                                 const SrcOp &Op1) {
+  return buildInstr(TargetOpcode::G_USUBO, {Res, BorrowOut}, {Op0, Op1});
+}
+
+MachineInstrBuilder MachineIRBuilder::buildUSube(const DstOp &Res,
+                                                 const DstOp &BorrowOut,
+                                                 const SrcOp &Op0,
+                                                 const SrcOp &Op1,
+                                                 const SrcOp &BorrowIn) {
+  return buildInstr(TargetOpcode::G_USUBE, {Res, BorrowOut},
+                    {Op0, Op1, BorrowIn});
+}
+
 MachineInstrBuilder MachineIRBuilder::buildAnyExt(const DstOp &Res,
                                                   const SrcOp &Op) {
   return buildInstr(TargetOpcode::G_ANYEXT, Res, Op);
