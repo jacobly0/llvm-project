@@ -267,12 +267,11 @@ enum {
   /// - OpIdx - The operand to copy
   /// - ZeroReg - The zero register to use
   GIR_CopyOrAddZeroReg,
-  /// Copy an operand to the specified instruction
-  /// - NewInsnID - Instruction ID to modify
-  /// - OldInsnID - Instruction ID to copy from
-  /// - OpIdx - The operand to copy
-  /// - SubRegIdx - The subregister to copy
-  GIR_CopySubReg,
+  /// Mutate the specified instruction operand to use a subregister
+  /// - InsnID - Instruction ID to modify
+  /// - OpIdx - The operand to mutate
+  /// - SubRegIdx - The subregister to use
+  GIR_MutateSubReg,
 
   /// Add an implicit register def to the specified instruction
   /// - InsnID - Instruction ID to modify

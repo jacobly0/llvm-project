@@ -803,18 +803,16 @@ bool InstructionSelector::executeMatchTable(
       break;
     }
 
-    case GIR_CopySubReg: {
-      int64_t NewInsnID = MatchTable[CurrentIdx++];
-      int64_t OldInsnID = MatchTable[CurrentIdx++];
+    case GIR_MutateSubReg: {
+      int64_t InsnID = MatchTable[CurrentIdx++];
       int64_t OpIdx = MatchTable[CurrentIdx++];
       int64_t SubRegIdx = MatchTable[CurrentIdx++];
-      assert(OutMIs[NewInsnID] && "Attempted to add to undefined instruction");
-      OutMIs[NewInsnID].addReg(State.MIs[OldInsnID]->getOperand(OpIdx).getReg(),
-                               0, SubRegIdx);
+      assert(OutMIs[InsnID] && "Attempted to mutate undefined instruction");
+      OutMIs[InsnID]->getOperand(OpIdx).setSubReg(SubRegIdx);
       DEBUG_WITH_TYPE(TgtInstructionSelector::getName(),
-                      dbgs() << CurrentIdx << ": GIR_CopySubReg(OutMIs["
-                             << NewInsnID << "], MIs[" << OldInsnID << "], "
-                             << OpIdx << ", " << SubRegIdx << ")\n");
+                      dbgs() << CurrentIdx << ": GIR_MutateSubReg(OutMIs["
+                             << InsnID << "], " << OpIdx << ", " << SubRegIdx
+                             << ")\n");
       break;
     }
 

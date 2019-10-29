@@ -2332,7 +2332,7 @@ public:
   enum RendererKind {
     OR_Copy,
     OR_CopyOrAddZeroReg,
-    OR_CopySubReg,
+    OR_MutateSubReg,
     OR_CopyPhysReg,
     OR_CopyConstantAsImm,
     OR_CopyFConstantAsFPImm,
@@ -2525,40 +2525,34 @@ public:
   }
 };
 
-/// A CopySubRegRenderer emits code to copy a single register operand from an
-/// existing instruction to the one being built and indicate that only a
-/// subregister should be copied.
-class CopySubRegRenderer : public OperandRenderer {
+/// A MutateSubRegRenderer emits code to mutate a register operand to indicate
+/// that only a subregister should be copied.
+class MutateSubRegRenderer : public OperandRenderer {
 protected:
-  unsigned NewInsnID;
-  /// The name of the operand.
-  const StringRef SymbolicName;
+  unsigned InsnID;
+  /// The index of the operand.
+  int OpIdx;
   /// The subregister to extract.
   const CodeGenSubRegIndex *SubReg;
 
 public:
-  CopySubRegRenderer(unsigned NewInsnID, StringRef SymbolicName,
-                     const CodeGenSubRegIndex *SubReg)
-      : OperandRenderer(OR_CopySubReg), NewInsnID(NewInsnID),
-        SymbolicName(SymbolicName), SubReg(SubReg) {}
+  MutateSubRegRenderer(unsigned InsnID, int OpIdx,
+                       const CodeGenSubRegIndex *SubReg)
+      : OperandRenderer(OR_MutateSubReg), InsnID(InsnID),
+        OpIdx(OpIdx), SubReg(SubReg) {}
 
   static bool classof(const OperandRenderer *R) {
-    return R->getKind() == OR_CopySubReg;
+    return R->getKind() == OR_MutateSubReg;
   }
 
-  const StringRef getSymbolicName() const { return SymbolicName; }
-
   void emitRenderOpcodes(MatchTable &Table, RuleMatcher &Rule) const override {
-    const OperandMatcher &Operand = Rule.getOperandMatcher(SymbolicName);
-    unsigned OldInsnVarID = Rule.getInsnVarID(Operand.getInstructionMatcher());
-    Table << MatchTable::Opcode("GIR_CopySubReg")
-          << MatchTable::Comment("NewInsnID") << MatchTable::IntValue(NewInsnID)
-          << MatchTable::Comment("OldInsnID")
-          << MatchTable::IntValue(OldInsnVarID) << MatchTable::Comment("OpIdx")
-          << MatchTable::IntValue(Operand.getOpIdx())
+    Table << MatchTable::Opcode("GIR_MutateSubReg")
+          << MatchTable::Comment("InsnID") << MatchTable::IntValue(InsnID)
+          << MatchTable::Comment("OpIdx") << MatchTable::IntValue(OpIdx)
           << MatchTable::Comment("SubRegIdx")
-          << MatchTable::IntValue(SubReg->EnumValue)
-          << MatchTable::Comment(SymbolicName) << MatchTable::LineBreak;
+          << MatchTable::NamedValue(SubReg->getNamespace(), SubReg->getName(),
+                                    SubReg->EnumValue)
+          << MatchTable::LineBreak;
   }
 };
 
@@ -2670,7 +2664,8 @@ public:
   void emitRenderOpcodes(MatchTable &Table, RuleMatcher &Rule) const override {
     Table << MatchTable::Opcode("GIR_AddImm") << MatchTable::Comment("InsnID")
           << MatchTable::IntValue(InsnID) << MatchTable::Comment("SubRegIndex")
-          << MatchTable::IntValue(SubRegIdx->EnumValue)
+          << MatchTable::NamedValue(SubRegIdx->getNamespace(),
+                                    SubRegIdx->getName(), SubRegIdx->EnumValue)
           << MatchTable::LineBreak;
   }
 };
@@ -4305,37 +4300,6 @@ Expected<action_iterator> GlobalISelEmitter::importExplicitUseRenderers(
   StringRef Name = OrigDstI->TheDef->getName();
   unsigned ExpectedDstINumUses = Dst->getNumChildren();
 
-  // EXTRACT_SUBREG needs to use a subregister COPY.
-  if (Name == "EXTRACT_SUBREG") {
-    if (!Dst->getChild(0)->isLeaf())
-      return failedImport("EXTRACT_SUBREG child #1 is not a leaf");
-
-    if (DefInit *SubRegInit =
-            dyn_cast<DefInit>(Dst->getChild(1)->getLeafValue())) {
-      Record *RCDef = getInitValueAsRegClass(Dst->getChild(0)->getLeafValue());
-      if (!RCDef)
-        return failedImport("EXTRACT_SUBREG child #0 could not "
-                            "be coerced to a register class");
-
-      CodeGenRegisterClass *RC = CGRegs.getRegClass(RCDef);
-      CodeGenSubRegIndex *SubIdx = CGRegs.getSubRegIdx(SubRegInit->getDef());
-
-      const auto &SrcRCDstRCPair =
-          RC->getMatchingSubClassWithSubRegs(CGRegs, SubIdx);
-      if (SrcRCDstRCPair.hasValue()) {
-        assert(SrcRCDstRCPair->second && "Couldn't find a matching subclass");
-        if (SrcRCDstRCPair->first != RC)
-          return failedImport("EXTRACT_SUBREG requires an additional COPY");
-      }
-
-      DstMIBuilder.addRenderer<CopySubRegRenderer>(Dst->getChild(0)->getName(),
-                                                   SubIdx);
-      return InsertPt;
-    }
-
-    return failedImport("EXTRACT_SUBREG child #1 is not a subreg index");
-  }
-
   if (Name == "REG_SEQUENCE") {
     if (!Dst->getChild(0)->isLeaf())
       return failedImport("REG_SEQUENCE child #0 is not a leaf");
@@ -4352,25 +4316,28 @@ Expected<action_iterator> GlobalISelEmitter::importExplicitUseRenderers(
       TreePatternNode *ValChild = Dst->getChild(I);
       TreePatternNode *SubRegChild = Dst->getChild(I + 1);
 
-      if (DefInit *SubRegInit =
-              dyn_cast<DefInit>(SubRegChild->getLeafValue())) {
-        CodeGenSubRegIndex *SubIdx = CGRegs.getSubRegIdx(SubRegInit->getDef());
+      DefInit *SubRegInit = dyn_cast<DefInit>(SubRegChild->getLeafValue());
+      if (!SubRegInit)
+        return failedImport("REG_SEQUENCE child is not a subreg index");
+      CodeGenSubRegIndex *SubIdx =
+          Target.getRegBank().getSubRegIdx(SubRegInit->getDef());
 
-        auto InsertPtOrError =
-            importExplicitUseRenderer(InsertPt, M, DstMIBuilder, ValChild);
-        if (auto Error = InsertPtOrError.takeError())
-          return std::move(Error);
-        InsertPt = InsertPtOrError.get();
-        DstMIBuilder.addRenderer<SubRegIndexRenderer>(SubIdx);
-      }
+      auto InsertPtOrError =
+          importExplicitUseRenderer(InsertPt, M, DstMIBuilder, ValChild);
+      if (auto Error = InsertPtOrError.takeError())
+        return std::move(Error);
+      InsertPt = InsertPtOrError.get();
+      DstMIBuilder.addRenderer<SubRegIndexRenderer>(SubIdx);
     }
 
+    // We are done with all of our explicit uses
     return InsertPt;
   }
 
+  // EXTRACT_SUBREG needs to use a subregister COPY.
   // Render the explicit uses.
   unsigned DstINumUses = OrigDstI->Operands.size() - OrigDstI->Operands.NumDefs;
-  if (Name == "COPY_TO_REGCLASS") {
+  if (Name == "COPY_TO_REGCLASS" || Name == "EXTRACT_SUBREG") {
     DstINumUses--; // Ignore the class constraint.
     ExpectedDstINumUses--;
   }
@@ -4401,6 +4368,33 @@ Expected<action_iterator> GlobalISelEmitter::importExplicitUseRenderers(
       return std::move(Error);
     InsertPt = InsertPtOrError.get();
     ++Child;
+  }
+
+  if (Name == "EXTRACT_SUBREG") {
+    if (!Dst->getChild(1)->isLeaf())
+      return failedImport("EXTRACT_SUBREG child #1 is not a leaf");
+
+    DefInit *SubRegInit = dyn_cast<DefInit>(Dst->getChild(1)->getLeafValue());
+    if (!SubRegInit)
+      return failedImport("EXTRACT_SUBREG child #1 is not a subreg index");
+    auto SuperClass = inferRegClassFromPattern(Dst->getChild(0));
+    if (!SuperClass)
+      return failedImport(
+          "Cannot infer register class from EXTRACT_SUBREG operand #0");
+
+    const CodeGenRegisterClass *RC = *SuperClass;
+    CodeGenSubRegIndex *SubIdx =
+        Target.getRegBank().getSubRegIdx(SubRegInit->getDef());
+
+    const auto &SrcRCDstRCPair =
+        RC->getMatchingSubClassWithSubRegs(Target.getRegBank(), SubIdx);
+    if (SrcRCDstRCPair.hasValue()) {
+      assert(SrcRCDstRCPair->second && "Couldn't find a matching subclass");
+      if (SrcRCDstRCPair->first != RC)
+        return failedImport("EXTRACT_SUBREG requires an additional COPY");
+    }
+
+    DstMIBuilder.addRenderer<MutateSubRegRenderer>(1, SubIdx);
   }
 
   if (NumDefaultOps + ExpectedDstINumUses != DstINumUses)
@@ -4724,16 +4718,12 @@ Expected<RuleMatcher> GlobalISelEmitter::runOnPattern(const PatternToMatch &P) {
         if (DstIOpRec == nullptr)
           return failedImport("REG_SEQUENCE operand #0 isn't a register class");
       } else if (DstIName == "EXTRACT_SUBREG") {
-        if (!Dst->getChild(0)->isLeaf())
-          return failedImport("EXTRACT_SUBREG operand #0 isn't a leaf");
-
-        // We can assume that a subregister is in the same bank as it's super
-        // register.
-        DstIOpRec = getInitValueAsRegClass(Dst->getChild(0)->getLeafValue());
-
-        if (DstIOpRec == nullptr)
+        auto MaybeSuperClass = inferSuperRegisterClassForNode(
+            VTy, Dst->getChild(0), Dst->getChild(1));
+        if (!MaybeSuperClass)
           return failedImport(
-              "EXTRACT_SUBREG operand #0 isn't a register class");
+              "Cannot infer register class for EXTRACT_SUBREG operand #0");
+        RC = *MaybeSuperClass;
       } else if (DstIName == "INSERT_SUBREG") {
         auto MaybeSuperClass = inferSuperRegisterClassForNode(
             VTy, Dst->getChild(0), Dst->getChild(2));
