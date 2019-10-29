@@ -3273,7 +3273,6 @@ private:
   const RecordKeeper &RK;
   const CodeGenDAGPatterns CGP;
   const CodeGenTarget &Target;
-  CodeGenRegBank CGRegs;
 
   /// Keep track of the equivalence between SDNodes and Instruction by mapping
   /// SDNodes to the GINodeEquiv mapping. We need to map to the GINodeEquiv to
@@ -3480,8 +3479,7 @@ GlobalISelEmitter::getEquivNode(Record &Equiv, const TreePatternNode *N) const {
 }
 
 GlobalISelEmitter::GlobalISelEmitter(RecordKeeper &RK)
-    : RK(RK), CGP(RK), Target(CGP.getTargetInfo()),
-      CGRegs(RK, Target.getHwModes()) {}
+    : RK(RK), CGP(RK), Target(CGP.getTargetInfo()) {}
 
 //===- Emitter ------------------------------------------------------------===//
 
@@ -3929,8 +3927,8 @@ Error GlobalISelEmitter::importChildMatcher(RuleMatcher &Rule,
     if (ChildRec->isSubClassOf("Register")) {
       // This just be emitted as a copy to the specific register.
       ValueTypeByHwMode VT = ChildTypes.front().getValueTypeByHwMode();
-      const CodeGenRegisterClass *RC
-        = CGRegs.getMinimalPhysRegClass(ChildRec, &VT);
+      const CodeGenRegisterClass *RC =
+          Target.getRegBank().getMinimalPhysRegClass(ChildRec, &VT);
       if (!RC) {
         return failedImport(
           "Could not determine physical register class of pattern source");
@@ -4088,7 +4086,7 @@ Expected<action_iterator> GlobalISelEmitter::importExplicitUseRenderer(
     }
 
     if (ChildRec->isSubClassOf("SubRegIndex")) {
-      CodeGenSubRegIndex *SubIdx = CGRegs.getSubRegIdx(ChildRec);
+      CodeGenSubRegIndex *SubIdx = Target.getRegBank().getSubRegIdx(ChildRec);
       DstMIBuilder.addRenderer<ImmRenderer>(SubIdx->EnumValue);
       return InsertPt;
     }
@@ -4213,7 +4211,8 @@ GlobalISelEmitter::createAndImportSubInstructionRenderer(
       return failedImport("EXTRACT_SUBREG child #1 is not a subreg index");
 
     const auto &SrcRCDstRCPair =
-      (*SuperClass)->getMatchingSubClassWithSubRegs(CGRegs, *SubIdx);
+        (*SuperClass)
+            ->getMatchingSubClassWithSubRegs(Target.getRegBank(), *SubIdx);
     assert(SrcRCDstRCPair->second && "Couldn't find a matching subclass");
     M.insertAction<ConstrainOperandToRegClassAction>(
       InsertPt, DstMIBuilder.getInsnID(), 0, *SrcRCDstRCPair->second);
@@ -4482,7 +4481,7 @@ GlobalISelEmitter::getRegClassFromLeaf(TreePatternNode *Leaf) {
   Record *RCRec = getInitValueAsRegClass(Leaf->getLeafValue());
   if (!RCRec)
     return None;
-  CodeGenRegisterClass *RC = CGRegs.getRegClass(RCRec);
+  CodeGenRegisterClass *RC = Target.getRegBank().getRegClass(RCRec);
   if (!RC)
     return None;
   return RC;
@@ -4557,12 +4556,13 @@ GlobalISelEmitter::inferSuperRegisterClass(const TypeSetByHwMode &Ty,
   DefInit *SubRegInit = dyn_cast<DefInit>(SubRegIdxNode->getLeafValue());
   if (!SubRegInit)
     return None;
-  CodeGenSubRegIndex *SubIdx = CGRegs.getSubRegIdx(SubRegInit->getDef());
+  CodeGenSubRegIndex *SubIdx =
+      Target.getRegBank().getSubRegIdx(SubRegInit->getDef());
 
   // Use the information we found above to find a minimal register class which
   // supports the subregister and type we want.
-  auto RC =
-      Target.getSuperRegForSubReg(Ty.getValueTypeByHwMode(), CGRegs, SubIdx);
+  auto RC = Target.getSuperRegForSubReg(Ty.getValueTypeByHwMode(),
+                                        Target.getRegBank(), SubIdx);
   if (!RC)
     return None;
   return *RC;
@@ -4592,7 +4592,7 @@ GlobalISelEmitter::inferSubRegIndexForNode(TreePatternNode *SubRegIdxNode) {
   DefInit *SubRegInit = dyn_cast<DefInit>(SubRegIdxNode->getLeafValue());
   if (!SubRegInit)
     return None;
-  return CGRegs.getSubRegIdx(SubRegInit->getDef());
+  return Target.getRegBank().getSubRegIdx(SubRegInit->getDef());
 }
 
 Expected<RuleMatcher> GlobalISelEmitter::runOnPattern(const PatternToMatch &P) {
@@ -4805,7 +4805,8 @@ Expected<RuleMatcher> GlobalISelEmitter::runOnPattern(const PatternToMatch &P) {
              "Expected Src of EXTRACT_SUBREG to have one result type");
 
     const auto &SrcRCDstRCPair =
-      (*SuperClass)->getMatchingSubClassWithSubRegs(CGRegs, *SubIdx);
+        (*SuperClass)
+            ->getMatchingSubClassWithSubRegs(Target.getRegBank(), *SubIdx);
     if (!SrcRCDstRCPair.hasValue())
       return failedImport("Couldn't find a matching class for EXTRACT_SUBREG");
     assert(SrcRCDstRCPair->second && "Couldn't find a matching subclass");
