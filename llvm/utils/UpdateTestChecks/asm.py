@@ -140,6 +140,12 @@ ASM_FUNCTION_WASM32_RE = re.compile(
     r'^\s*(\.Lfunc_end[0-9]+:\n|end_function)',
     flags=(re.M | re.S))
 
+ASM_FUNCTION_Z80_RE = re.compile(
+     r'^_(?P<func>[^:]+):\s*;+\s*@(?P=func)\n'
+     r'(?P<body>.*?)\n'
+     r'^\s*;\s--\sEnd\sfunction',
+     flags=(re.M | re.S))
+
 
 SCRUB_LOOP_COMMENT_RE = re.compile(
     r'# =>This Inner Loop Header:.*|# in Loop:.*', flags=re.M)
@@ -298,6 +304,16 @@ def scrub_asm_wasm32(asm, args):
   asm = common.SCRUB_TRAILING_WHITESPACE_RE.sub(r'', asm)
   return asm
 
+def scrub_asm_z80(asm, args):
+  # Scrub runs of whitespace out of the assembly, but leave the leading
+  # whitespace in place.
+  asm = common.SCRUB_WHITESPACE_RE.sub(r' ', asm)
+  # Expand the tabs used for indentation.
+  asm = string.expandtabs(asm, 2)
+  # Strip trailing whitespace.
+  asm = common.SCRUB_TRAILING_WHITESPACE_RE.sub(r'', asm)
+  return asm
+
 def get_triple_from_march(march):
   triples = {
       'amdgcn': 'amdgcn',
@@ -341,6 +357,8 @@ def build_function_body_dictionary_for_triple(args, raw_tool_output, triple, pre
       'sparc': (scrub_asm_sparc, ASM_FUNCTION_SPARC_RE),
       's390x': (scrub_asm_systemz, ASM_FUNCTION_SYSTEMZ_RE),
       'wasm32': (scrub_asm_wasm32, ASM_FUNCTION_WASM32_RE),
+      'z80': (scrub_asm_z80, ASM_FUNCTION_Z80_RE),
+      'ez80': (scrub_asm_z80, ASM_FUNCTION_Z80_RE),
   }
   handler = None
   best_prefix = ''
