@@ -930,3 +930,10 @@ def dwarf_debug_producer : Separate<["-"], "dwarf-debug-producer">,
 def defsym : Separate<["-"], "defsym">,
   HelpText<"Define a value for a symbol">;
 } // let Flags = [CC1AsOption]
+
+//===----------------------------------------------------------------------===//
+// Temp Debug Options
+//===----------------------------------------------------------------------===//
+// Temp Debug Options
+def test_ez80_hack : Flag<["-"], "test-ez80-hack">,
+    Flags<[CC1Option]>, HelpText<"Enable hack for testing ez80 code generation.">;

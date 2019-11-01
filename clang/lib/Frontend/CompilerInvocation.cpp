@@ -3492,6 +3492,7 @@ static void ParseTargetArgs(TargetOptions &Opts, ArgList &Args,
     else
       Opts.SDKVersion = Version;
   }
+  Opts.TestEZ80Hack = Args.hasArg(OPT_test_ez80_hack);
 }
 
 bool CompilerInvocation::CreateFromArgs(CompilerInvocation &Res,
