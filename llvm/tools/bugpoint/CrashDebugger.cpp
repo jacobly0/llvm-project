@@ -68,6 +68,10 @@ cl::opt<bool> NoStripDebugTypeInfo("disable-strip-debug-types",
 cl::opt<bool> VerboseErrors("verbose-errors",
                             cl::desc("Print the output of crashing program"),
                             cl::init(false));
+cl::opt<bool> VerifyModule("verify-module",
+                           cl::desc("Verify modules before running tests and "
+                                    "ignore those that fail verification"),
+                           cl::init(true));
 }
 
 namespace llvm {
@@ -1406,7 +1410,9 @@ Error BugDriver::debugOptimizerCrash(const std::string &ID) {
 }
 
 static bool TestForCodeGenCrash(const BugDriver &BD, Module *M) {
-  if (Error E = BD.compileProgram(*M)) {
+  if (VerifyModule && verifyModule(*M))
+    errs() << "<invalid>";
+  else if (Error E = BD.compileProgram(*M)) {
     if (VerboseErrors)
       errs() << toString(std::move(E)) << "\n";
     else {
