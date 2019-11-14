@@ -1,0 +1,55 @@
+name: CMake
+
+on:
+  push:
+    branches: [z80]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu, macOS, windows]
+        config: [Release]
+        assert: [Off, On]
+
+    runs-on: ${{matrix.os}}-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v1
+      with:
+        fetch-depth: 1
+
+    - name: Create Build Environment
+      run: |
+        cmake -E make_directory ${{runner.workspace}}/build
+        cmake -E make_directory ${{runner.workspace}}/install
+
+    - name: Configure CMake
+      working-directory: ${{runner.workspace}}/build
+      run: cmake ${{github.workspace}}/llvm -DCMAKE_BUILD_TYPE=${{matrix.config}} -DCMAKE_BUILD_PARALLEL_LEVEL=4 -DCMAKE_INSTALL_PREFIX=${{runner.workspace}}/install -DLLVM_ENABLE_ASSERTIONS=${{matrix.assert}} -DLLVM_EXPERIMENTAL_TARGETS_TO_BUILD=Z80 -DLLVM_ENABLE_PROJECTS=clang
+
+    - name: Build
+      working-directory: ${{runner.workspace}}/build
+      run: cmake --build . --config ${{matrix.config}}
+
+    - name: Install
+      working-directory: ${{runner.workspace}}/build
+      run: cmake --build . --config ${{matrix.config}} --target install
+
+    - name: Upload
+      uses: actions/upload-artifact@v1
+      with:
+        name: ${{matrix.os}}Assert${{matrix.assert}}
+        path: ${{runner.workspace}}/install
+
+    - name: Test LLVM
+      working-directory: ${{runner.workspace}}/build
+      run: cmake --build . --config ${{matrix.config}} --target check-llvm
+      continue-on-error: true
+
+    - name: Test Clang
+      working-directory: ${{runner.workspace}}/build
+      run: cmake --build . --config ${{matrix.config}} --target check-clang
+      continue-on-error: true
