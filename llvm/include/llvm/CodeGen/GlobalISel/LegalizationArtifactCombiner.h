@@ -310,7 +310,10 @@ public:
     const unsigned NumMergeRegs = MergeI->getNumOperands() - 1;
 
     if (NumMergeRegs < NumDefs) {
-      if (NumDefs % NumMergeRegs != 0)
+      if (NumMergeRegs % NumDefs != 0)
+        return false;
+
+      if (ConvertOp && !MRI.getType(MergeI->getOperand(0).getReg()).isVector())
         return false;
 
       Builder.setInstr(MI);
