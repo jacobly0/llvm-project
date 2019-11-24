@@ -1007,9 +1007,8 @@ bool IRTranslator::translateSelect(const User &U,
   ArrayRef<Register> Op0Regs = getOrCreateVRegs(*U.getOperand(1));
   ArrayRef<Register> Op1Regs = getOrCreateVRegs(*U.getOperand(2));
 
-  const SelectInst &SI = cast<SelectInst>(U);
   uint16_t Flags = 0;
-  if (const CmpInst *Cmp = dyn_cast<CmpInst>(SI.getCondition()))
+  if (const CmpInst *Cmp = dyn_cast<CmpInst>(U.getOperand(0)))
     Flags = MachineInstr::copyFlagsFromInstruction(*Cmp);
 
   for (unsigned i = 0; i < ResRegs.size(); ++i) {
