@@ -28,6 +28,8 @@ def FeatureEZ80    : SubtargetFeature<"ez80", "HasEZ80Ops", "true",
                                       "Support ez80 instructions">;
 def FeatureIdxHalf : SubtargetFeature<"idxhalf", "HasIdxHalfRegs", "true",
                                       "Support index half registers">;
+def FeatureSli     : SubtargetFeature<"sli", "HasSliOps", "true",
+                                      "Support SLI instruction">;
 
 //===----------------------------------------------------------------------===//
 // Z80 Subtarget state
@@ -46,7 +48,7 @@ let CompleteModel = 0 in def GenericModel : SchedMachineModel;
 class Proc<string Name, list<SubtargetFeature> Features>
   : ProcessorModel<Name, GenericModel, Features>;
 def : Proc<"generic",     []>;
-def : Proc<"z80",         [FeatureUndoc, FeatureIdxHalf]>;
+def : Proc<"z80",         [FeatureUndoc, FeatureIdxHalf, FeatureSli]>;
 def : Proc<"z180",        [FeatureZ180]>;
 def : Proc<"ez80",        [FeatureZ180, FeatureEZ80, FeatureIdxHalf]>;
 

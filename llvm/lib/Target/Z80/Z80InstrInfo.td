@@ -82,6 +82,7 @@ def Z80rl_flag       : SDNode<"Z80ISD::RL",      SDTUnOpRFF>;
 def Z80rr_flag       : SDNode<"Z80ISD::RR",      SDTUnOpRFF>;
 def Z80sla_flag      : SDNode<"Z80ISD::SLA",     SDTUnOpRF>;
 def Z80sra_flag      : SDNode<"Z80ISD::SRA",     SDTUnOpRF>;
+def Z80sli_flag      : SDNode<"Z80ISD::SLI",     SDTUnOpRF>;
 def Z80srl_flag      : SDNode<"Z80ISD::SRL",     SDTUnOpRF>;
 def Z80bit_flag      : SDNode<"Z80ISD::BIT",     SDTBitOpF>;
 def Z80res_flag      : SDNode<"Z80ISD::RES",     SDTBitOpR>;
@@ -132,8 +133,9 @@ def HaveZ180Ops  : Predicate<"Subtarget->hasZ180Ops()">,
 def HaveEZ80Ops  : Predicate<"Subtarget->hasEZ80Ops()">,
                    AssemblerPredicate<(all_of FeatureEZ80), "eZ80 ops">;
 def HaveIdxHalf  : Predicate<"Subtarget->hasIndexHalfRegs()">,
-                   AssemblerPredicate<(all_of FeatureIdxHalf),
-                                      "index half regs">;
+                   AssemblerPredicate<"FeatureIdxHalf", "index half regs">;
+def HaveSliOps   : Predicate<"Subtarget->hasSliOps()">,
+                   AssemblerPredicate<"FeatureSli", "sli ops">;
 
 //===----------------------------------------------------------------------===//
 // Z80 Instruction Format Definitions.
@@ -805,6 +807,8 @@ defm RL  : UnOp8RFF <CBPre, 2, "rl">;
 defm RR  : UnOp8RFF <CBPre, 3, "rr">;
 defm SLA : UnOp8RF  <CBPre, 4, "sla">;
 defm SRA : UnOp8RF  <CBPre, 5, "sra">;
+defm SLI : UnOp8RF  <CBPre, 6, "sli">,
+           Requires<[HaveSliOps]>;
 defm SRL : UnOp8RF  <CBPre, 7, "srl">;
 defm BIT : BitOp8F  <       1, "bit">;
 defm RES : BitOp8R  <       2, "res">;
@@ -820,7 +824,9 @@ defm XOR : BinOp8RF <NoPre, 5, "xor">;
 defm OR  : BinOp8RF <NoPre, 6, "or",  1>;
 defm CP  : BinOp8F  <NoPre, 7, "cp",  1>;
 defm TST : BinOp8F  <EDPre, 4, "tst", 1>,
-           Requires<[HaveEZ80Ops]>;
+           Requires<[HaveZ180Ops]>;
+
+def : MnemonicAlias<"sll", "sli">, Requires<[HaveSliOps]>;
 
 def : Pat<(fshl G8:$reg, G8:$reg, (i8  1)), (RLC8r G8:$reg)>;
 def : Pat<(fshl G8:$reg, G8:$reg, (i8  7)), (RRC8r G8:$reg)>;
