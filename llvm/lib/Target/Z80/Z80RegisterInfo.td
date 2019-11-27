@@ -53,7 +53,7 @@ let Namespace = "Z80" in {
 //===----------------------------------------------------------------------===//
 //  Register definitions...
 //
-
+let Namespace = "Z80" in {
 // 8-bit registers
 def A : Z80Reg<"a", 7>;
 def F : Z80Reg<"f">;
@@ -63,6 +63,11 @@ def D : Z80Reg<"d", 2>;
 def E : Z80Reg<"e", 3>;
 def H : Z80Reg<"h", 4>;
 def L : Z80Reg<"l", 5>;
+
+// special registers
+def I : Z80Reg<"i", 8>;
+def R : Z80Reg<"r", 9>;
+def MB : Z80Reg<"mb", 10>;
 
 // 8-bit index registers
 let CostPerUse = [1] in {
@@ -96,13 +101,10 @@ let CostPerUse = [1] in {
   def UIX : EZ80ExtReg<IX>;
   def UIY : EZ80ExtReg<IY>;
 }
-
-// 24-bit misc registers
-def SPL : Z80Reg<"sp", 3>, DwarfRegNum<[7]>;
-
-// misc registers
-def PC  : Z80Reg<"pc">, DwarfRegNum<[8]>;
-
+}
+def SPL : Z80Reg<"sp", 3>;
+def PC  : Z80Reg<"pc">;
+}
 //===----------------------------------------------------------------------===//
 //  Register Class Definitions...
 //
