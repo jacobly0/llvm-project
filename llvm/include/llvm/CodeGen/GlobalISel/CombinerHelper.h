@@ -23,12 +23,13 @@
 namespace llvm {
 
 class GISelChangeObserver;
+class GISelKnownBits;
+class MachineBasicBlock;
+class MachineDominatorTree;
 class MachineIRBuilder;
-class MachineRegisterInfo;
 class MachineInstr;
 class MachineOperand;
-class GISelKnownBits;
-class MachineDominatorTree;
+class MachineRegisterInfo;
 
 struct PreferredTuple {
   LLT Ty;                // The result type of the extend.
@@ -86,6 +87,19 @@ public:
   /// construction, this function returns a conservative result that tracks just
   /// a single basic block.
   bool dominates(MachineInstr &DefMI, MachineInstr &UseMI);
+
+  /// Returns true if \p DefMBB dominates \p UseMBB. By definition a block
+  /// dominates itself.
+  ///
+  /// If we haven't been provided with a MachineDominatorTree during
+  /// construction, this function returns a conservative result that just checks
+  /// for equality.
+  bool dominates(MachineBasicBlock &DefMBB, MachineBasicBlock &UseMBB);
+
+  /// Checks if MI can be moved to the beginning of MBB.
+  ///
+  /// \returns true if the instruction can be moved.
+  bool canMove(MachineInstr &MI, MachineBasicBlock &MBB, bool &SawStore);
 
   /// If \p MI is extend that consumes the result of a load, try to combine it.
   /// Returns true if MI changed.
@@ -177,6 +191,12 @@ public:
 
   bool matchPtrAddImmedChain(MachineInstr &MI, PtrAddChain &MatchInfo);
   bool applyPtrAddImmedChain(MachineInstr &MI, PtrAddChain &MatchInfo);
+
+  bool matchSplitConditions(MachineInstr &MI);
+  void applySplitConditions(MachineInstr &MI);
+
+  bool matchLowerIsPowerOfTwo(MachineInstr &MI);
+  void applyLowerIsPowerOfTwo(MachineInstr &MI);
 
   /// Try to transform \p MI by using all of the above
   /// combine functions. Returns true if changed.

@@ -3,6 +3,8 @@ set(LLVM_TARGET_DEFINITIONS Z80.td)
 tablegen(LLVM EZ80GenAsmWriter.inc -gen-asm-writer -asmwriternum=1)
 tablegen(LLVM Z80GenAsmWriter.inc -gen-asm-writer)
 tablegen(LLVM Z80GenCallingConv.inc -gen-callingconv)
+tablegen(LLVM Z80GenGICombiner.inc -gen-global-isel-combiner
+              -combiners="Z80PreLegalizerCombinerHelper")
 tablegen(LLVM Z80GenGlobalISel.inc -gen-global-isel)
 tablegen(LLVM Z80GenInstrInfo.inc -gen-instr-info)
 tablegen(LLVM Z80GenRegisterBank.inc -gen-register-bank)
@@ -21,6 +23,8 @@ set(sources
   Z80ISelLowering.cpp
   Z80LegalizerInfo.cpp
   Z80MCInstLower.cpp
+  Z80PostSelectCombiner.cpp
+  Z80PreLegalizerCombiner.cpp
   Z80RegisterInfo.cpp
   Z80RegisterBankInfo.cpp
   Z80Subtarget.cpp

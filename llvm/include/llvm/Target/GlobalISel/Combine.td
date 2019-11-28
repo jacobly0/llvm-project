@@ -136,5 +136,17 @@ def ptr_add_immed_chain : GICombineRule<
          [{ return Helper.matchPtrAddImmedChain(*${d}, ${matchinfo}); }]),
   (apply [{ Helper.applyPtrAddImmedChain(*${d}, ${matchinfo}); }])>;
 
+def split_conditions : GICombineRule<
+  (defs root:$d),
+  (match (wip_match_opcode G_BRCOND):$d,
+         [{ return Helper.matchSplitConditions(*${d}); }]),
+  (apply [{ Helper.applySplitConditions(*${d}); }])>;
+
+def lower_is_power_of_two : GICombineRule<
+  (defs root:$d),
+  (match (wip_match_opcode G_ICMP):$d,
+         [{ return Helper.matchLowerIsPowerOfTwo(*${d}); }]),
+  (apply [{ Helper.applyLowerIsPowerOfTwo(*${d}); }])>;
+
 def all_combines : GICombineGroup<[trivial_combines, ptr_add_immed_chain,
     combines_for_extload, combine_indexed_load_store]>;

@@ -164,24 +164,34 @@ public:
                             unsigned SrcReg2, int CmpMask, int CmpValue,
                             const MachineRegisterInfo *MRI) const override;
 
+  MachineInstr *optimizeLoadInstr(MachineInstr &MI,
+                                  const MachineRegisterInfo *MRI,
+                                  unsigned &FoldAsLoadDefReg,
+                                  MachineInstr *&DefMI) const override;
+
   /// Check whether the target can fold a load that feeds a subreg operand
   /// (or a subreg operand that feeds a store).
   bool isSubregFoldable() const override { return true; }
 
-  MachineInstr *
-  foldMemoryOperandImpl(MachineFunction &MF, MachineInstr &MI,
-                        ArrayRef<unsigned> Ops,
-                        MachineBasicBlock::iterator InsertPt, int FrameIndex,
-                        LiveIntervals *LIS = nullptr,
-                        VirtRegMap *VRM = nullptr) const override;
-  MachineInstr *
-  foldMemoryOperandImpl(MachineFunction &MF, MachineInstr &MI,
-                        ArrayRef<unsigned> Ops,
-                        MachineBasicBlock::iterator InsertPt,
-                        MachineInstr &LoadMI,
-                        LiveIntervals *LIS = nullptr) const override;
+  MachineInstr *foldMemoryOperandImpl(MachineFunction &MF, MachineInstr &MI,
+                                      ArrayRef<unsigned> Ops,
+                                      MachineBasicBlock::iterator InsertPt,
+                                      int FrameIndex,
+                                      LiveIntervals *LIS = nullptr,
+                                      VirtRegMap *VRM = nullptr) const override;
+  MachineInstr *foldMemoryOperandImpl(
+      MachineFunction &MF, MachineInstr &MI, ArrayRef<unsigned> Ops,
+      MachineBasicBlock::iterator InsertPt, MachineInstr &LoadMI,
+      LiveIntervals *LIS = nullptr) const override;
 
 private:
+  void updateOperandRegConstraints(MachineFunction &MF,
+                                   MachineInstr &NewMI) const;
+  MachineInstr *
+  foldMemoryOperandImpl(MachineFunction &MF, MachineInstr &MI, unsigned OpNum,
+                        ArrayRef<MachineOperand> MOs,
+                        MachineBasicBlock::iterator InsertPt) const;
+
   /// canExchange - This returns whether the two instructions can be directly
   /// exchanged with one EX instruction. Since the only register exchange
   /// instruction is EX DE,HL, simply returns whether the two arguments are

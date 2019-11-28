@@ -37,7 +37,9 @@ extern "C" void LLVMInitializeZ80Target() {
   RegisterTargetMachine<Z80TargetMachine> Y(getTheEZ80Target());
 
   PassRegistry &PR = *PassRegistry::getPassRegistry();
+  initializeZ80PreLegalizerCombinerPass(PR);
   initializeGlobalISel(PR);
+  initializeZ80PostSelectCombinerPass(PR);
 }
 
 static std::string computeDataLayout(const Triple &TT) {
@@ -129,9 +131,11 @@ public:
   }
 
   bool addIRTranslator() override;
+  void addPreLegalizeMachineIR() override;
   bool addLegalizeMachineIR() override;
   bool addRegBankSelect() override;
   bool addGlobalInstructionSelect() override;
+  void addMachineSSAOptimization() override;
   void addFastRegAlloc() override;
 };
 } // end anonymous namespace
@@ -143,6 +147,11 @@ TargetPassConfig *Z80TargetMachine::createPassConfig(PassManagerBase &PM) {
 bool Z80PassConfig::addIRTranslator() {
   addPass(new IRTranslator);
   return false;
+}
+
+void Z80PassConfig::addPreLegalizeMachineIR() {
+  bool IsOptNone = getOptLevel() == CodeGenOpt::None;
+  addPass(createZ80PreLegalizeCombiner(IsOptNone));
 }
 
 bool Z80PassConfig::addLegalizeMachineIR() {
@@ -158,6 +167,11 @@ bool Z80PassConfig::addRegBankSelect() {
 bool Z80PassConfig::addGlobalInstructionSelect() {
   addPass(new InstructionSelect);
   return false;
+}
+
+void Z80PassConfig::addMachineSSAOptimization() {
+  addPass(createZ80PostSelectCombiner());
+  TargetPassConfig::addMachineSSAOptimization();
 }
 
 void Z80PassConfig::addFastRegAlloc() {

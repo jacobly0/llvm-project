@@ -15,6 +15,7 @@
 #include "MCTargetDesc/Z80MCTargetDesc.h"
 #include "Z80.h"
 #include "Z80Subtarget.h"
+#include "llvm/ADT/Sequence.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
@@ -1438,42 +1439,148 @@ bool Z80InstrInfo::optimizeCompareInstr(MachineInstr &CmpInstr,
   }
 }
 
+MachineInstr *Z80InstrInfo::optimizeLoadInstr(MachineInstr &MI,
+                                              const MachineRegisterInfo *MRI,
+                                              unsigned &FoldAsLoadDefReg,
+                                              MachineInstr *&DefMI) const {
+  // Check whether we can move DefMI here.
+  DefMI = MRI->getVRegDef(FoldAsLoadDefReg);
+  bool SawStore = false;
+  if (!DefMI || !DefMI->isSafeToMove(nullptr, SawStore))
+    return nullptr;
+
+  // Collect information about virtual register operands of MI.
+  SmallVector<unsigned, 1> SrcOperandIds;
+  for (unsigned i = 0, e = MI.getNumOperands(); i != e; ++i) {
+    MachineOperand &MO = MI.getOperand(i);
+    if (!MO.isReg())
+      continue;
+    Register Reg = MO.getReg();
+    if (Reg != FoldAsLoadDefReg)
+      continue;
+    // Do not fold if we have a subreg use or a def.
+    if (MO.getSubReg() || MO.isDef())
+      return nullptr;
+    SrcOperandIds.push_back(i);
+  }
+  if (SrcOperandIds.empty())
+    return nullptr;
+
+  // Check whether we can fold the def into SrcOperandId.
+  if (MachineInstr *FoldMI = foldMemoryOperand(MI, SrcOperandIds, *DefMI)) {
+    FoldAsLoadDefReg = 0;
+    return FoldMI;
+  }
+
+  return nullptr;
+}
+
+void Z80InstrInfo::updateOperandRegConstraints(MachineFunction &MF,
+                                               MachineInstr &NewMI) const {
+  MachineRegisterInfo &MRI = MF.getRegInfo();
+  const TargetRegisterInfo &TRI = *MRI.getTargetRegisterInfo();
+
+  for (unsigned Idx : llvm::seq(0u, NewMI.getNumOperands())) {
+    MachineOperand &MO = NewMI.getOperand(Idx);
+    // We only need to update constraints on virtual register operands.
+    if (!MO.isReg())
+      continue;
+    Register Reg = MO.getReg();
+    if (!Register::isVirtualRegister(Reg))
+      continue;
+
+    auto *NewRC =
+        MRI.constrainRegClass(Reg, getRegClass(NewMI.getDesc(), Idx, &TRI, MF));
+    if (!NewRC) {
+      LLVM_DEBUG(
+          dbgs() << "WARNING: Unable to update register constraint for operand "
+                 << Idx << " of instruction:\n";
+          NewMI.dump(); dbgs() << "\n");
+    }
+  }
+}
+
+MachineInstr *Z80InstrInfo::foldMemoryOperandImpl(
+    MachineFunction &MF, MachineInstr &MI, unsigned OpNum,
+    ArrayRef<MachineOperand> MOs, MachineBasicBlock::iterator InsertPt) const {
+  bool IsOff;
+  if (MOs.size() == 1 && MOs[0].isReg())
+    IsOff = false;
+  else if (MOs.size() == 2 && (MOs[0].isReg() || MOs[0].isFI()) &&
+           MOs[1].isImm())
+    IsOff = true;
+  else
+    return nullptr;
+  
+  unsigned Opc;
+  switch (MI.getOpcode()) {
+  case Z80::BIT8bg: Opc = IsOff ? Z80::BIT8bo : Z80::BIT8bp; break;
+  case Z80::ADD8ar: Opc = IsOff ? Z80::ADD8ao : Z80::ADD8ap; break;
+  case Z80::ADC8ar: Opc = IsOff ? Z80::ADC8ao : Z80::ADC8ap; break;
+  case Z80::SUB8ar: Opc = IsOff ? Z80::SUB8ao : Z80::SUB8ap; break;
+  case Z80::SBC8ar: Opc = IsOff ? Z80::SBC8ao : Z80::SBC8ap; break;
+  case Z80::AND8ar: Opc = IsOff ? Z80::AND8ao : Z80::AND8ap; break;
+  case Z80::XOR8ar: Opc = IsOff ? Z80::XOR8ao : Z80::XOR8ap; break;
+  case Z80:: OR8ar: Opc = IsOff ? Z80:: OR8ao : Z80:: OR8ap; break;
+  case Z80::TST8ar: Opc = IsOff ? Z80::TST8ao : Z80::TST8ap; break;
+  default: return nullptr;
+  }
+
+  MachineInstrBuilder MIB(
+      MF, MF.CreateMachineInstr(get(Opc), MI.getDebugLoc(), true));
+  for (unsigned Idx : llvm::seq(0u, MI.getNumOperands())) {
+    MachineOperand &MO = MI.getOperand(Idx);
+    if (Idx == OpNum) {
+      assert(MO.isReg() && "Expected to fold into reg operand!");
+      for (auto &AddrMO : MOs)
+        MIB.add(AddrMO);
+    } else
+      MIB.add(MO);
+  }
+  updateOperandRegConstraints(MF, *MIB);
+  InsertPt->getParent()->insert(InsertPt, MIB);
+  return MIB;
+}
+
 MachineInstr *
 Z80InstrInfo::foldMemoryOperandImpl(MachineFunction &MF, MachineInstr &MI,
                                     ArrayRef<unsigned> Ops,
                                     MachineBasicBlock::iterator InsertPt,
                                     int FrameIndex, LiveIntervals *LIS,
                                     VirtRegMap *VRM) const {
-  return nullptr;
-  bool Is24Bit = Subtarget.is24Bit();
-  MachineBasicBlock &MBB = *InsertPt->getParent();
-  if (Ops.size() == 1 && Ops[0] == 1 && MI.isFullCopy()) {
-    unsigned DstReg = MI.getOperand(0).getReg();
-    if (Register::isPhysicalRegister(DstReg)) {
-      unsigned Opc;
-      if (Z80::R8RegClass.contains(DstReg)) {
-        Opc = Z80::LD8ro;
-      } else {
-        assert((Is24Bit ? Z80::R24RegClass : Z80::R16RegClass)
-               .contains(DstReg) && "Unexpected physical reg");
-        Opc = Is24Bit ? Z80::LD24ro : Z80::LD16ro;
-      }
-      return BuildMI(MBB, InsertPt, MI.getDebugLoc(), get(Opc), DstReg)
-        .addFrameIndex(FrameIndex).addImm(0);
-    }
-  }
-  dbgs() << Ops.size() << ": ";
-  for (unsigned Op : Ops)
-    dbgs() << Op << ' ';
-  MI.dump();
-  return nullptr;
+  for (auto Op : Ops)
+    if (MI.getOperand(Op).getSubReg())
+      return nullptr;
+
+  const MachineFrameInfo &MFI = MF.getFrameInfo();
+  unsigned Size = MFI.getObjectSize(FrameIndex);
+
+  if (Ops.size() != 1 || Size != 1)
+    return nullptr;
+
+  MachineOperand MOs[2] = {MachineOperand::CreateFI(FrameIndex),
+                           MachineOperand::CreateImm(0)};
+  return foldMemoryOperandImpl(MF, MI, Ops[0], MOs, InsertPt);
 }
+
 MachineInstr *
 Z80InstrInfo::foldMemoryOperandImpl(MachineFunction &MF, MachineInstr &MI,
                                     ArrayRef<unsigned> Ops,
                                     MachineBasicBlock::iterator InsertPt,
                                     MachineInstr &LoadMI,
                                     LiveIntervals *LIS) const {
-  return nullptr;
-  llvm_unreachable("Unimplemented");
+  for (auto Op : Ops)
+    if (MI.getOperand(Op).getSubReg())
+      return nullptr;
+
+  int FrameIndex;
+  if (isLoadFromStackSlot(LoadMI, FrameIndex))
+    return foldMemoryOperandImpl(MF, MI, Ops, InsertPt, FrameIndex, LIS);
+
+  if (Ops.size() != 1)
+    return nullptr;
+
+  auto MOs = LoadMI.explicit_uses();
+  return foldMemoryOperandImpl(MF, MI, Ops[0], {MOs.begin(), MOs.end()},
+                               InsertPt);
 }

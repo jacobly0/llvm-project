@@ -62,6 +62,7 @@ include "Z80RegisterBanks.td"
 //===----------------------------------------------------------------------===//
 
 include "Z80InstrInfo.td"
+include "Z80Combine.td"
 
 def Z80InstrInfo : InstrInfo;
 
