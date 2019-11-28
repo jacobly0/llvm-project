@@ -19,13 +19,19 @@ namespace llvm {
 
 class FunctionPass;
 class InstructionSelector;
+class PassRegistry;
 class Z80RegisterBankInfo;
 class Z80Subtarget;
 class Z80TargetMachine;
 
+FunctionPass *createZ80PreLegalizeCombiner(bool IsOptNone);
 InstructionSelector *createZ80InstructionSelector(const Z80TargetMachine &TM,
                                                   Z80Subtarget &,
                                                   Z80RegisterBankInfo &);
+FunctionPass *createZ80PostSelectCombiner();
+
+void initializeZ80PreLegalizerCombinerPass(PassRegistry &);
+void initializeZ80PostSelectCombinerPass(PassRegistry &);
 
 /// Return a pass that cleansup usages of the flags register.
 FunctionPass *createZ80FixupSetCC();

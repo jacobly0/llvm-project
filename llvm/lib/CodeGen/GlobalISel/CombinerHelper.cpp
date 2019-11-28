@@ -1302,6 +1302,48 @@ bool CombinerHelper::tryCombineMemCpyFamily(MachineInstr &MI, unsigned MaxLen) {
   return false;
 }
 
+bool CombinerHelper::matchLowerIsPowerOfTwo(MachineInstr &MI) {
+  if (MI.getOpcode() != TargetOpcode::G_ICMP)
+    return false;
+  auto Pred = CmpInst::Predicate(MI.getOperand(1).getPredicate());
+  MachineInstr *CtPop = MRI.getVRegDef(MI.getOperand(2).getReg());
+  Register RHSReg = MI.getOperand(3).getReg();
+  auto RHSConst = getConstantVRegVal(RHSReg, MRI);
+  if (!CtPop || CtPop->getOpcode() != TargetOpcode::G_CTPOP || !RHSConst)
+    return false;
+  if (((Pred == CmpInst::ICMP_EQ || Pred == CmpInst::ICMP_NE) &&
+       *RHSConst == 1) ||
+      (Pred == CmpInst::ICMP_ULT && *RHSConst == 2) ||
+      (Pred == CmpInst::ICMP_UGT && *RHSConst == 1))
+    return true;
+  return false;
+}
+
+void CombinerHelper::applyLowerIsPowerOfTwo(MachineInstr &MI) {
+  Builder.setInsertPt(*MI.getParent(), MI);
+  Register ResReg = MI.getOperand(0).getReg();
+  auto Pred = CmpInst::Predicate(MI.getOperand(1).getPredicate());
+  MachineInstr *CtPop = MRI.getVRegDef(MI.getOperand(2).getReg());
+  Register SrcReg = CtPop->getOperand(1).getReg();
+  LLT Ty = MRI.getType(SrcReg);
+  auto NegOne = Builder.buildConstant(Ty, -1);
+  auto Add = Builder.buildAdd(Ty, SrcReg, NegOne);
+  auto And = Builder.buildAnd(Ty, SrcReg, Add);
+  auto Zero = Builder.buildConstant(Ty, 0);
+  if (Pred == CmpInst::ICMP_EQ || Pred == CmpInst::ICMP_NE) {
+    auto IsNotZero = Builder.buildICmp(CmpInst::getInversePredicate(Pred),
+                                       LLT::scalar(1), SrcReg, Zero);
+    auto IsPowerOfTwo = Builder.buildICmp(Pred, LLT::scalar(1), And, Zero);
+    Builder.buildInstr(Pred == CmpInst::ICMP_EQ ? TargetOpcode::G_AND
+                                                : TargetOpcode::G_OR,
+                       {ResReg}, {IsNotZero, IsPowerOfTwo});
+  } else
+    Builder.buildICmp(Pred == CmpInst::ICMP_ULT ? CmpInst::ICMP_EQ
+                                                : CmpInst::ICMP_NE,
+                      ResReg, And, Zero);
+  MI.eraseFromParent();
+}
+
 bool CombinerHelper::tryCombine(MachineInstr &MI) {
   if (tryCombineCopy(MI))
     return true;

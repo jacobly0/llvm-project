@@ -202,7 +202,11 @@ void Z80RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   if (isFrameOffsetLegal(&MI, BasePtr, Offset) &&
       (Opc != Z80::LEA16ro || STI.hasEZ80Ops())) {
     MI.getOperand(FIOperandNum).ChangeToRegister(BasePtr, false);
-    MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
+    if (!Offset && (Opc == Z80::PEA24o || Opc == Z80::PEA16o)) {
+      MI.setDesc(TII.get(Opc == Z80::PEA24o ? Z80::PUSH24r : Z80::PUSH16r));
+      MI.RemoveOperand(FIOperandNum + 1);
+    } else
+      MI.getOperand(FIOperandNum + 1).ChangeToImmediate(Offset);
     return;
   }
   unsigned OffsetReg = RS->scavengeRegister(

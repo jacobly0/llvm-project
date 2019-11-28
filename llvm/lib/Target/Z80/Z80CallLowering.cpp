@@ -76,11 +76,9 @@ protected:
 
 struct CallArgHandler : public OutgoingValueHandler {
   CallArgHandler(MachineIRBuilder &MIRBuilder, MachineRegisterInfo &MRI,
-                 MachineInstrBuilder &MIB, unsigned &StackSize,
-                 CCAssignFn *AssignFn)
+                 MachineInstrBuilder &MIB, CCAssignFn *AssignFn)
       : OutgoingValueHandler(MIRBuilder, MRI, MIB, AssignFn),
-        After(MIRBuilder.getInsertPt()), Before(std::prev(After)),
-        StackSize(StackSize) {}
+        After(MIRBuilder.getInsertPt()), Before(std::prev(After)) {}
 
   void assignValueToReg(Register ValVReg, Register PhysReg,
                         CCValAssign &VA) override {
@@ -94,15 +92,49 @@ struct CallArgHandler : public OutgoingValueHandler {
     return OutgoingValueHandler::getStackAddress(Size, Offset, MPO);
   }
 
+  void assignValueToAddress(Register ValVReg, Register Addr, uint64_t Size,
+                            MachinePointerInfo &MPO, CCValAssign &VA) override {
+    if (MachineInstr *AddrMI = MRI.getVRegDef(Addr)) {
+      if (Size == (STI.is24Bit() ? 3 : 2) &&
+          AddrMI->getOpcode() == TargetOpcode::G_PTR_ADD) {
+        if (MachineInstr *BaseMI =
+                MRI.getVRegDef(AddrMI->getOperand(1).getReg())) {
+          if (auto OffConst =
+              getConstantVRegVal(AddrMI->getOperand(2).getReg(), MRI)) {
+            if (BaseMI->getOpcode() == TargetOpcode::COPY &&
+                BaseMI->getOperand(1).getReg() ==
+                    STI.getRegisterInfo()->getStackRegister() &&
+                *OffConst == CurrentOffset) {
+              MIRBuilder.buildInstr(Size == 3 ? Z80::PUSH24r : Z80::PUSH16r, {},
+                                    {ValVReg});
+              CurrentOffset += Size;
+              return;
+            }
+          }
+        }
+      }
+    }
+    return OutgoingValueHandler::assignValueToAddress(ValVReg, Addr, Size, MPO, VA);
+  }
+
   bool finalize(CCState &State) override {
     StackSize = State.getNextStackOffset();
     MIRBuilder.setInsertPt(MIRBuilder.getMBB(), After);
     return true;
   }
 
+  unsigned getSetupAdjustment() {
+    return StackSize - CurrentOffset;
+  }
+
+  unsigned getDestroyAdjustment() {
+    return StackSize;
+  }
+
 protected:
   MachineBasicBlock::iterator After, Before;
-  unsigned &StackSize;
+  unsigned CurrentOffset = 0;
+  unsigned StackSize;
 };
 
 struct IncomingValueHandler : public CallLowering::ValueHandler {
@@ -360,8 +392,7 @@ bool Z80CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
     splitToValueTypes(OrigArg, SplitArgs, DL, MRI);
   }
   // Do the actual argument marshalling.
-  unsigned StackSize;
-  CallArgHandler Handler(MIRBuilder, MRI, MIB, StackSize, CC_Z80);
+  CallArgHandler Handler(MIRBuilder, MRI, MIB, CC_Z80);
   if (!handleAssignments(Info.CallConv, Info.IsVarArg, MIRBuilder, SplitArgs,
                          Handler))
     return false;
@@ -417,41 +448,42 @@ bool Z80CallLowering::lowerCall(MachineIRBuilder &MIRBuilder,
     }
   }
 
-  CallSeqStart.addImm(StackSize).addImm(0 /* see getFrameTotalSize */);
+  CallSeqStart.addImm(Handler.getSetupAdjustment())
+      .addImm(0 /* see getFrameTotalSize */);
 
   unsigned AdjStackUp = TII.getCallFrameDestroyOpcode();
-  auto CallSeqEnd =
-      MIRBuilder.buildInstr(AdjStackUp).addImm(StackSize).addImm(0 /* ??? */);
+  auto CallSeqEnd = MIRBuilder.buildInstr(AdjStackUp)
+                        .addImm(Handler.getDestroyAdjustment())
+                        .addImm(0 /* ??? */);
 
   // It is too early to know exactly which method will be used, however
   // sometimes a better method can be guaranteed and we can adjust the operands
   // accordingly.
-  const TargetRegisterClass *ScratchRC = nullptr;
-  switch (TFI.getOptimalStackAdjustmentMethod(MF, -StackSize)) {
-  case Z80FrameLowering::SAM_None:
-  case Z80FrameLowering::SAM_Tiny:
-  case Z80FrameLowering::SAM_All:
-    // These methods doesn't need anything.
-    break;
-  case Z80FrameLowering::SAM_Small:
-    // This method clobbers an R register.
-    ScratchRC = Is24Bit ? &Z80::R24RegClass : &Z80::R16RegClass;
-    break;
-  case Z80FrameLowering::SAM_Large:
-    // This method also clobbers flags.
-    CallSeqStart.addDef(Z80::F, RegState::Implicit | RegState::Dead);
-    CallSeqEnd.addDef(Z80::F, RegState::Implicit | RegState::Dead);
-    LLVM_FALLTHROUGH;
-  case Z80FrameLowering::SAM_Medium:
-    // These methods clobber an A register.
-    ScratchRC = Is24Bit ? &Z80::A24RegClass : &Z80::A16RegClass;
-    break;
-  }
-  if (ScratchRC) {
-    CallSeqStart.addDef(MRI.createVirtualRegister(ScratchRC),
-                        RegState::Implicit | RegState::Dead);
-    CallSeqEnd.addDef(MRI.createVirtualRegister(ScratchRC),
-                      RegState::Implicit | RegState::Dead);
+  for (auto CallSeq : {CallSeqStart, CallSeqEnd}) {
+    const TargetRegisterClass *ScratchRC = nullptr;
+    switch (TFI.getOptimalStackAdjustmentMethod(
+        MF, -CallSeq->getOperand(0).getImm())) {
+    case Z80FrameLowering::SAM_None:
+    case Z80FrameLowering::SAM_Tiny:
+    case Z80FrameLowering::SAM_All:
+      // These methods doesn't need anything.
+      break;
+    case Z80FrameLowering::SAM_Small:
+      // This method clobbers an R register.
+      ScratchRC = Is24Bit ? &Z80::R24RegClass : &Z80::R16RegClass;
+      break;
+    case Z80FrameLowering::SAM_Large:
+      // This method also clobbers flags.
+      CallSeq.addDef(Z80::F, RegState::Implicit | RegState::Dead);
+      LLVM_FALLTHROUGH;
+    case Z80FrameLowering::SAM_Medium:
+      // These methods clobber an A register.
+      ScratchRC = Is24Bit ? &Z80::A24RegClass : &Z80::A16RegClass;
+      break;
+    }
+    if (ScratchRC)
+      CallSeq.addDef(MRI.createVirtualRegister(ScratchRC),
+                     RegState::Implicit | RegState::Dead);
   }
 
   return true;

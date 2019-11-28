@@ -100,4 +100,9 @@ def elide_br_by_inverting_cond : GICombineRule<
   (match [{ return Helper.matchElideBrByInvertingCond(${d}); }]),
   (apply [{ Helper.applyElideBrByInvertingCond(${d}); }])>;
 
+def lower_is_power_of_two : GICombineRule<
+  (defs root:$d),
+  (match [{ return Helper.matchLowerIsPowerOfTwo(${d}); }]),
+  (apply [{ Helper.applyLowerIsPowerOfTwo(${d}); }])>;
+
 def all_combines : GICombineGroup<[trivial_combines]>;

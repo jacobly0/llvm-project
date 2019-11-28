@@ -161,6 +161,9 @@ public:
   ///     $whatever = COPY $addr
   bool tryCombineMemCpyFamily(MachineInstr &MI, unsigned MaxLen = 0);
 
+  bool matchLowerIsPowerOfTwo(MachineInstr &MI);
+  void applyLowerIsPowerOfTwo(MachineInstr &MI);
+
   /// Try to transform \p MI by using all of the above
   /// combine functions. Returns true if changed.
   bool tryCombine(MachineInstr &MI);
