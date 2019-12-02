@@ -165,7 +165,7 @@ def Z80_COND_M  : PatLeaf<(i8 7)>;
 //
 
 def aptr_rc : PointerLikeRegClass<1>;
-def iptr_rc : PointerLikeRegClass<2>;
+def iptr_rc : PointerLikeRegClass<2>, Operand<iPTR>;
 
 def mem : Operand<iPTR> {
   let PrintMethod = "printMem";
@@ -339,7 +339,7 @@ let isBranch = 1, isTerminator = 1 in {
                     (outs), (ins jmptarget:$tgt)>;
     def JP24 : I24i<NoPre, 0xC3, "jp", "\t$tgt", "",
                     (outs), (ins jmptarget:$tgt)>;
-    let isIndirectBranch = 1 in {
+    let isIndirectBranch = 1, isCodeGenOnly = 1 in {
       def JP16r : I16<NoPre, 0xE9, "jp", "\t($tgt)", "",
                       (outs), (ins A16:$tgt), [(brind A16:$tgt)]>;
       def JP24r : I24<NoPre, 0xE9, "jp", "\t($tgt)", "",
