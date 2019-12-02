@@ -13,22 +13,32 @@
 //
 //===----------------------------------------------------------------------===//
 
+let Namespace = "Z80" in {
 class Z80Reg<string n, bits<16> Enc = -1> : Register<n> {
-  let Namespace = "Z80";
   let HWEncoding = Enc;
-}
-class Z80RegWithSubRegs<string n, list<Register> sub = [], bits<16> enc = -1>
-  : Z80Reg<n, enc> {
-  let SubRegs = sub;
 }
 
 // Subregister indices.
-let Namespace = "Z80" in {
-  def sub_low   : SubRegIndex<8>;
-  def sub_high  : SubRegIndex<8, 8>;
-  def sub_short : SubRegIndex<16>;
+def sub_low   : SubRegIndex<8>;
+def sub_high  : SubRegIndex<8, 8>;
+def sub_short : SubRegIndex<16>;
+
+class Z80RegWithSubRegs<string n, list<Register> sub = [], bits<16> enc = -1>
+  : Z80Reg<n, enc> {
+  let SubRegs = sub;
+  let SubRegIndices = [sub_high, sub_low];
+  let CoveredBySubRegs = 1;
 }
 
+class EZ80RegPair<Z80Reg subreg>
+  : Register<""> {
+  let HWEncoding{1-0} = subreg.HWEncoding{1-0};
+  let SubRegs = [subreg];
+  let SubRegIndices = [sub_short];
+  let AsmName = subreg.AsmName;
+  //let AltNames = subreg.AltNames;
+}
+}
 //===----------------------------------------------------------------------===//
 //  Register definitions...
 //
@@ -51,33 +61,37 @@ def IYH : Z80Reg<"iyh", 4>;
 def IYL : Z80Reg<"iyl", 5>;
 }
 
-let SubRegIndices = [sub_high, sub_low], CoveredBySubRegs = 1 in {
 // 16-bit registers
 def AF : Z80RegWithSubRegs<"af", [A,F], 3>, DwarfRegNum<[3]>;
 def BC : Z80RegWithSubRegs<"bc", [B,C], 0>, DwarfRegNum<[0]>;
 def DE : Z80RegWithSubRegs<"de", [D,E], 1>, DwarfRegNum<[1]>;
 def HL : Z80RegWithSubRegs<"hl", [H,L], 2>, DwarfRegNum<[2]>;
 // 16-bit index registers
-let CostPerUse = [1] in {
-def IX : Z80RegWithSubRegs<"ix", [IXH,IXL], 2>, DwarfRegNum<[4]>;
-def IY : Z80RegWithSubRegs<"iy", [IYH,IYL], 2>, DwarfRegNum<[5]>;
+let CostPerUse = 1 in {
+  def IX : Z80RegWithSubRegs<"ix", [IXH,IXL], 2>;
+  def IY : Z80RegWithSubRegs<"iy", [IYH,IYL], 2>;
 }
-}
-def SPS : Z80Reg<"sp", 3>, DwarfRegNum<[6]>;
 
-let SubRegIndices = [sub_short] in {
+def SPS : Z80Reg<"sp", 3>;
+
 // 24-bit registers
-def UBC : Z80RegWithSubRegs<"bc", [BC], 0>, DwarfRegAlias<BC>;
-def UDE : Z80RegWithSubRegs<"de", [DE], 1>, DwarfRegAlias<DE>;
-def UHL : Z80RegWithSubRegs<"hl", [HL], 2>, DwarfRegAlias<HL>;
+def UBC : EZ80RegPair<BC>;
+def UDE : EZ80RegPair<DE>;
+def UHL : EZ80RegPair<HL>;
 // 24-bit index registers
-let CostPerUse = [1] in {
-def UIX : Z80RegWithSubRegs<"ix", [IX], 2>, DwarfRegAlias<IX>;
-def UIY : Z80RegWithSubRegs<"iy", [IY], 2>, DwarfRegAlias<IY>;
+let CostPerUse = 1 in {
+  def UIX : EZ80RegPair<IX>;
+  def UIY : EZ80RegPair<IY>;
 }
-}
-def SPL : Z80Reg<"sp", 3>, DwarfRegNum<[7]>;
-def PC  : Z80Reg<"pc">, DwarfRegNum<[8]>;
+
+//definition of SPL register for EZ80 ADL mode.
+//It havn't common part with SPS register, so this definition is not 100%
+//correct, but SPS and SPL cannot be used within one function. Moreover, ADL=1
+//and ADL=0 instructions cannot be mixed within one ELF section, because no one
+//disassembler which may correctly disassemble result code.
+def SPL : EZ80RegPair<SPS>;
+
+def PC  : Z80Reg<"pc">;
 
 //===----------------------------------------------------------------------===//
 //  Register Class Definitions...
