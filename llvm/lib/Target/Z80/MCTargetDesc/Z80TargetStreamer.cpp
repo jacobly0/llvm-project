@@ -26,22 +26,28 @@ Z80TargetAsmStreamer::Z80TargetAsmStreamer(MCStreamer &S,
 
 void Z80TargetAsmStreamer::emitAlign(unsigned ByteAlignment) {
   if (ByteAlignment > 1)
-    OS << "\tALIGN\t" << ByteAlignment << '\n';
+    OS << "\trb\t" << (ByteAlignment-1) << " - ($ - $$ + " << (ByteAlignment-1) << ") mod " << ByteAlignment << "\n";
 }
 
 void Z80TargetAsmStreamer::emitBlock(uint64_t NumBytes) {
   if (NumBytes)
-    OS << "\tDS\t" << NumBytes << '\n';
+    OS << "\trb\t" << NumBytes << '\n';
+}
+
+void Z80TargetAsmStreamer::emitLocal(MCSymbol *Symbol) {
+  OS << "\tprivate\t";
+  Symbol->print(OS, MAI);
+  OS << '\n';
 }
 
 void Z80TargetAsmStreamer::emitGlobal(MCSymbol *Symbol) {
-  OS << "\tXDEF\t";
+  OS << "\tpublic\t";
   Symbol->print(OS, MAI);
   OS << '\n';
 }
 
 void Z80TargetAsmStreamer::emitExtern(MCSymbol *Symbol) {
-  OS << "\tXREF\t";
+  OS << "\textern\t";
   Symbol->print(OS, MAI);
   OS << '\n';
 }

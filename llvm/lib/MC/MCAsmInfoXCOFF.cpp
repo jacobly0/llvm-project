@@ -21,7 +21,7 @@ MCAsmInfoXCOFF::MCAsmInfoXCOFF() {
   AsciiDirective = nullptr; // not supported
   AscizDirective = nullptr; // not supported
   NeedsFunctionDescriptors = true;
-  HasDotLGloblDirective = true;
+  LGloblDirective = "\t.lglobl\t";
   Data64bitsDirective = "\t.llong\t";
   SupportsQuotedNames = false;
 }

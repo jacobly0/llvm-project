@@ -1111,7 +1111,8 @@ void MCStreamer::SwitchSection(MCSection *Section, const MCExpr *Subsection) {
     MCSymbol *Sym = Section->getBeginSymbol();
     if (Sym && !Sym->isInSection())
       EmitLabel(Sym);
-  }
+  } else if (Context.getAsmInfo()->shouldAlwaysChangeSection())
+    ChangeSection(Section, Subsection);
 }
 
 MCSymbol *MCStreamer::endSection(MCSection *Section) {

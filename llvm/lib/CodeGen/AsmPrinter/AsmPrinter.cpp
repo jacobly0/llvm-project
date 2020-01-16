@@ -430,7 +430,7 @@ void AsmPrinter::EmitLinkage(const GlobalValue *GV, MCSymbol *GVSym) const {
   case GlobalValue::PrivateLinkage:
     return;
   case GlobalValue::InternalLinkage:
-    if (MAI->hasDotLGloblDirective())
+    if (MAI->getLGloblDirective())
       OutStreamer->EmitSymbolAttribute(GVSym, MCSA_LGlobal);
     return;
   case GlobalValue::AppendingLinkage:
@@ -1877,6 +1877,8 @@ void AsmPrinter::EmitJumpTableInfo() {
       OutStreamer->EmitLabel(GetJTISymbol(JTI, true));
 
     MCSymbol* JTISymbol = GetJTISymbol(JTI);
+    if (MAI->getLGloblDirective())
+      OutStreamer->EmitSymbolAttribute(JTISymbol, MCSA_LGlobal);
     if (TM.getTargetTriple().isOSBinFormatXCOFF()) {
       cast<MCSymbolXCOFF>(JTISymbol)->setContainingCsect(
           cast<MCSectionXCOFF>(TLOF.getSectionForJumpTable(F, TM)));

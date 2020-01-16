@@ -13,9 +13,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "Z80AsmPrinter.h"
-#include "Z80.h"
 #include "MCTargetDesc/Z80MCTargetDesc.h"
 #include "MCTargetDesc/Z80TargetStreamer.h"
+#include "Z80.h"
 #include "llvm/MC/MCContext.h"
 #include "llvm/MC/MCStreamer.h"
 #include "llvm/Support/TargetRegistry.h"
@@ -86,7 +86,9 @@ void Z80AsmPrinter::EmitGlobalVariable(const GlobalVariable *GV) {
 
   OutStreamer->SwitchSection(TheSection);
   TS->emitAlign(Align);
-  if (!GV->hasLocalLinkage())
+  if (GV->hasLocalLinkage())
+    TS->emitLocal(GVSym);
+  else
     TS->emitGlobal(GVSym);
   OutStreamer->EmitLabel(GVSym);
   if (GVKind.isBSS())

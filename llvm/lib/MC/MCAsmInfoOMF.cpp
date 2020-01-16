@@ -19,5 +19,5 @@ using namespace llvm;
 void MCAsmInfoOMF::anchor() {}
 
 MCAsmInfoOMF::MCAsmInfoOMF() {
-  PrivateLabelPrefix = "L";
+  PrivateLabelPrefix = "?";
 }

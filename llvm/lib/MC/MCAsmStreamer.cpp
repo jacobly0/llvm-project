@@ -605,9 +605,9 @@ void MCAsmStreamer::EmitAssignment(MCSymbol *Symbol, const MCExpr *Value) {
     if (E->inlineAssignedExpr())
       EmitSet = false;
   if (EmitSet) {
-    OS << ".set ";
+    OS << MAI->getSetDirective();
     Symbol->print(OS, MAI);
-    OS << ", ";
+    OS << MAI->getSetSeparator();
     Value->print(OS, MAI);
 
     EmitEOL();
@@ -655,7 +655,9 @@ bool MCAsmStreamer::EmitSymbolAttribute(MCSymbol *Symbol,
   case MCSA_Global: // .globl/.global
     OS << MAI->getGlobalDirective();
     break;
-  case MCSA_LGlobal:        OS << "\t.lglobl\t";          break;
+  case MCSA_LGlobal: // .lglobl
+    OS << MAI->getLGloblDirective();
+    break;
   case MCSA_Hidden:         OS << "\t.hidden\t";          break;
   case MCSA_IndirectSymbol: OS << "\t.indirect_symbol\t"; break;
   case MCSA_Internal:       OS << "\t.internal\t";        break;
@@ -1113,7 +1115,7 @@ void MCAsmStreamer::emitFill(const MCExpr &NumBytes, uint64_t FillValue,
   } else if (const char *BlockDirective = MAI->getBlockDirective(1)) {
     OS << BlockDirective;
     NumBytes.print(OS, MAI);
-    OS << ", " << FillValue;
+    OS << MAI->getBlockSeparator() << FillValue;
     EmitEOL();
   } else
     MCStreamer::emitFill(NumBytes, FillValue);
