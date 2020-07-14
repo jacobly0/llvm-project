@@ -1,0 +1,19 @@
+
+#ifndef ELF_RELOC
+#error "ELF_RELOC must be defined"
+#endif
+
+ELF_RELOC(R_Z80_NONE,                  0)
+ELF_RELOC(R_Z80_8,                     1)
+ELF_RELOC(R_Z80_8_DIS,                 2)
+ELF_RELOC(R_Z80_8_PCREL,               3)
+ELF_RELOC(R_Z80_16,                    4)
+ELF_RELOC(R_Z80_24,                    5)
+ELF_RELOC(R_Z80_32,                    6)
+ELF_RELOC(R_Z80_BYTE0,                 7)
+ELF_RELOC(R_Z80_BYTE1,                 8)
+ELF_RELOC(R_Z80_BYTE2,                 9)
+ELF_RELOC(R_Z80_BYTE3,                10)
+ELF_RELOC(R_Z80_WORD0,                11)
+ELF_RELOC(R_Z80_WORD1,                12)
+ELF_RELOC(R_Z80_16_BE,                13)

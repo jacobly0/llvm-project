@@ -13,13 +13,28 @@
 
 #include "Z80MCTargetDesc.h"
 #include "EZ80InstPrinter.h"
+#include "Z80AsmBackend.h"
+#include "Z80ELFStreamer.h"
 #include "Z80InstPrinter.h"
 #include "Z80MCAsmInfo.h"
+#include "Z80MCCodeEmitter.h"
 #include "Z80TargetStreamer.h"
+#include "llvm/ADT/Triple.h"
+#include "llvm/MC/MCAsmBackend.h"
+#include "llvm/MC/MCCodeEmitter.h"
+#include "llvm/MC/MCContext.h"
+#include "llvm/MC/MCInstPrinter.h"
 #include "llvm/MC/MCInstrInfo.h"
+#include "llvm/MC/MCObjectWriter.h"
 #include "llvm/MC/MCRegisterInfo.h"
+#include "llvm/MC/MCStreamer.h"
 #include "llvm/MC/MCSubtargetInfo.h"
+#include "llvm/MC/MCTargetOptions.h"
 #include "llvm/Support/TargetRegistry.h"
+
+#include <memory>
+#include <utility>
+
 using namespace llvm;
 
 #define GET_REGINFO_MC_DESC
@@ -60,6 +75,20 @@ static MCAsmInfo *createZ80MCAsmInfo(const MCRegisterInfo &MRI,
   return new Z80MCAsmInfo(TheTriple);
 }
 
+MCInstrInfo *createZ80MCInstrInfo() {
+  MCInstrInfo *X = new MCInstrInfo();
+  InitZ80MCInstrInfo(X);
+
+  return X;
+}
+
+static MCRegisterInfo *createZ80MCRegisterInfo(const Triple &TT) {
+  MCRegisterInfo *X = new MCRegisterInfo();
+  InitZ80MCRegisterInfo(X, 0);
+
+  return X;
+}
+
 static MCInstPrinter *createZ80MCInstPrinter(const Triple &T,
                                              unsigned SyntaxVariant,
                                              const MCAsmInfo &MAI,
@@ -74,9 +103,29 @@ static MCInstPrinter *createZ80MCInstPrinter(const Triple &T,
 
 static MCTargetStreamer *
 createZ80AsmTargetStreamer(MCStreamer &S, formatted_raw_ostream &OS,
-                           MCInstPrinter */*InstPrint*/,
+                           MCInstPrinter * /*InstPrint*/,
                            bool /*isVerboseAsm*/) {
   return new Z80TargetAsmStreamer(S, OS);
+}
+
+static MCCodeEmitter *createZ80MCCodeEmitter(const MCInstrInfo &MCII,
+                                             const MCRegisterInfo &MRI,
+                                             MCContext &Ctx) {
+  return new Z80MCCodeEmitter(MCII, Ctx);
+}
+
+static MCStreamer *createMCStreamer(const Triple &T, MCContext &Context,
+                                    std::unique_ptr<MCAsmBackend> &&MAB,
+                                    std::unique_ptr<MCObjectWriter> &&OW,
+                                    std::unique_ptr<MCCodeEmitter> &&Emitter,
+                                    bool RelaxAll) {
+  return createELFStreamer(Context, std::move(MAB), std::move(OW),
+                           std::move(Emitter), RelaxAll);
+}
+
+static MCTargetStreamer *
+createZ80ObjectTargetStreamer(MCStreamer &S, const MCSubtargetInfo &STI) {
+  return new Z80ELFStreamer(S, STI);
 }
 
 // Force static initialization.
@@ -85,10 +134,33 @@ extern "C" LLVM_EXTERNAL_VISIBILITY void LLVMInitializeZ80TargetMC() {
     // Register the MC asm info.
     RegisterMCAsmInfoFn X(*T, createZ80MCAsmInfo);
 
+    // Register the MC instruction info.
+    TargetRegistry::RegisterMCInstrInfo(*T, createZ80MCInstrInfo);
+
+    // Register the MC register info.
+    TargetRegistry::RegisterMCRegInfo(*T, createZ80MCRegisterInfo);
+
+    // Register the MC subtarget info.
+    TargetRegistry::RegisterMCSubtargetInfo(*T,
+                                            Z80_MC::createZ80MCSubtargetInfo);
+
     // Register the MCInstPrinter.
     TargetRegistry::RegisterMCInstPrinter(*T, createZ80MCInstPrinter);
 
     // Register the asm target streamer.
     TargetRegistry::RegisterAsmTargetStreamer(*T, createZ80AsmTargetStreamer);
   }
+  // Register the MC Code Emitter.
+  TargetRegistry::RegisterMCCodeEmitter(getTheZ80Target(),
+                                        createZ80MCCodeEmitter);
+
+  // Register the obj streamer.
+  TargetRegistry::RegisterELFStreamer(getTheZ80Target(), createMCStreamer);
+
+  // Register the obj target streamer.
+  TargetRegistry::RegisterObjectTargetStreamer(getTheZ80Target(),
+                                               createZ80ObjectTargetStreamer);
+
+  // Register the asm backend (as little endian).
+  TargetRegistry::RegisterMCAsmBackend(getTheZ80Target(), createZ80AsmBackend);
 }

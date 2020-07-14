@@ -15,6 +15,7 @@
 #define LLVM_LIB_TARGET_Z80_MCTARGETDESC_Z80MCTARGETDESC_H
 
 #include "llvm/Support/DataTypes.h"
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -23,6 +24,7 @@ class MCAsmBackend;
 class MCCodeEmitter;
 class MCContext;
 class MCInstrInfo;
+class MCObjectTargetWriter;
 class MCObjectWriter;
 class MCRegisterInfo;
 class MCSubtargetInfo;
@@ -42,15 +44,12 @@ std::string ParseZ80Triple(const Triple &TT);
 /// do not need to go through TargetRegistry.
 MCSubtargetInfo *createZ80MCSubtargetInfo(const Triple &TT, StringRef CPU,
                                           StringRef FS);
-}
+} // namespace Z80_MC
 
-MCCodeEmitter *createZ80MCCodeEmitter(const MCInstrInfo &MCII,
-                                      const MCRegisterInfo &MRI,
-                                      MCContext &Ctx);
+MCAsmBackend *createZ80AsmBackend(const Target &T, const MCSubtargetInfo &STI,
+                                  const MCRegisterInfo &MRI,
+                                  const llvm::MCTargetOptions &TO);
 
-MCAsmBackend *createZ80AsmBackend(const Target &T, const MCRegisterInfo &MRI,
-                                  const Triple &TT, StringRef CPU,
-                                  const MCTargetOptions &Options);
 MCAsmBackend *createEZ80AsmBackend(const Target &T, const MCRegisterInfo &MRI,
                                    const Triple &TT, StringRef CPU,
                                    const MCTargetOptions &Options);
@@ -59,10 +58,9 @@ MCAsmBackend *createEZ80AsmBackend(const Target &T, const MCRegisterInfo &MRI,
 std::unique_ptr<MCObjectWriter> createZ80OMFObjectWriter(raw_pwrite_stream &OS);
 
 /// Construct a Z80 ELF object writer.
-std::unique_ptr<MCObjectWriter> createZ80ELFObjectWriter(raw_pwrite_stream &OS,
-                                                         uint8_t OSABI = 0);
+std::unique_ptr<MCObjectTargetWriter> createZ80ELFObjectWriter(uint8_t OSABI);
 
-} // End llvm namespace
+} // namespace llvm
 
 // Defines symbolic names for Z80 registers.  This defines a mapping from
 // register name to register number.
