@@ -14,31 +14,42 @@
 //===----------------------------------------------------------------------===//
 
 let Namespace = "Z80" in {
-class Z80Reg<string n, bits<16> Enc = -1> : Register<n> {
-  let HWEncoding = Enc;
+  class Z80Reg<string name, bits<16> enc = -1> : Register<name> {
+    let HWEncoding = enc;
+  }
+
+  // Subregister indices.
+  def sub_low   : SubRegIndex<8>;
+  def sub_high  : SubRegIndex<8, 8>;
+  def sub_short : SubRegIndex<16>;
+
+  class Z80RegPair<Z80Reg high, Z80Reg low,
+                   bits<16> enc, bits<16> dwarf = enc>
+    : Z80Reg<!cond(!and(!eq(!size(high.AsmName), 1),
+                        !eq(!size( low.AsmName), 1))
+                   : !strconcat(high.AsmName, low.AsmName),
+                   !and(!gt(!size(high.AsmName), 1),
+                        !gt(!size( low.AsmName), 1),
+                        !eq(!substr(high.AsmName,
+                                    0, !sub(!size(high.AsmName), 1)),
+                            !substr( low.AsmName,
+                                    0, !sub(!size( low.AsmName), 1))))
+                   : !substr(high.AsmName, 0, !sub(!size(high.AsmName), 1))),
+             enc>
+    , DwarfRegNum<[dwarf]> {
+    let SubRegs = [high, low];
+    let SubRegIndices = [sub_high, sub_low];
+    let CoveredBySubRegs = 1;
+  }
+
+  class EZ80ExtReg<Z80Reg short>
+    : Z80Reg<short.AsmName, short.HWEncoding>
+    , DwarfRegAlias<short> {
+    let SubRegs = [short];
+    let SubRegIndices = [sub_short];
+  }
 }
 
-// Subregister indices.
-def sub_low   : SubRegIndex<8>;
-def sub_high  : SubRegIndex<8, 8>;
-def sub_short : SubRegIndex<16>;
-
-class Z80RegWithSubRegs<string n, list<Register> sub = [], bits<16> enc = -1>
-  : Z80Reg<n, enc> {
-  let SubRegs = sub;
-  let SubRegIndices = [sub_high, sub_low];
-  let CoveredBySubRegs = 1;
-}
-
-class EZ80RegPair<Z80Reg subreg>
-  : Register<""> {
-  let HWEncoding{1-0} = subreg.HWEncoding{1-0};
-  let SubRegs = [subreg];
-  let SubRegIndices = [sub_short];
-  let AsmName = subreg.AsmName;
-  //let AltNames = subreg.AltNames;
-}
-}
 //===----------------------------------------------------------------------===//
 //  Register definitions...
 //
@@ -62,36 +73,35 @@ def IYL : Z80Reg<"iyl", 5>;
 }
 
 // 16-bit registers
-def AF : Z80RegWithSubRegs<"af", [A,F], 3>, DwarfRegNum<[3]>;
-def BC : Z80RegWithSubRegs<"bc", [B,C], 0>, DwarfRegNum<[0]>;
-def DE : Z80RegWithSubRegs<"de", [D,E], 1>, DwarfRegNum<[1]>;
-def HL : Z80RegWithSubRegs<"hl", [H,L], 2>, DwarfRegNum<[2]>;
+def AF : Z80RegPair<A, F, 3>;
+def BC : Z80RegPair<B, C, 0>;
+def DE : Z80RegPair<D, E, 1>;
+def HL : Z80RegPair<H, L, 2>;
+
 // 16-bit index registers
-let CostPerUse = 1 in {
-  def IX : Z80RegWithSubRegs<"ix", [IXH,IXL], 2>;
-  def IY : Z80RegWithSubRegs<"iy", [IYH,IYL], 2>;
+let CostPerUse = [1] in {
+  def IX : Z80RegPair<IXH, IXL, 2, 4>;
+  def IY : Z80RegPair<IYH, IYL, 2, 5>;
 }
 
-def SPS : Z80Reg<"sp", 3>;
+// 16-bit misc registers
+def SPS : Z80Reg<"sp", 3>, DwarfRegNum<[6]>;
 
 // 24-bit registers
-def UBC : EZ80RegPair<BC>;
-def UDE : EZ80RegPair<DE>;
-def UHL : EZ80RegPair<HL>;
+def UBC : EZ80ExtReg<BC>;
+def UDE : EZ80ExtReg<DE>;
+def UHL : EZ80ExtReg<HL>;
 // 24-bit index registers
-let CostPerUse = 1 in {
-  def UIX : EZ80RegPair<IX>;
-  def UIY : EZ80RegPair<IY>;
+let CostPerUse = [1] in {
+  def UIX : EZ80ExtReg<IX>;
+  def UIY : EZ80ExtReg<IY>;
 }
 
-//definition of SPL register for EZ80 ADL mode.
-//It havn't common part with SPS register, so this definition is not 100%
-//correct, but SPS and SPL cannot be used within one function. Moreover, ADL=1
-//and ADL=0 instructions cannot be mixed within one ELF section, because no one
-//disassembler which may correctly disassemble result code.
-def SPL : EZ80RegPair<SPS>;
+// 24-bit misc registers
+def SPL : Z80Reg<"sp", 3>, DwarfRegNum<[7]>;
 
-def PC  : Z80Reg<"pc">;
+// misc registers
+def PC  : Z80Reg<"pc">, DwarfRegNum<[8]>;
 
 //===----------------------------------------------------------------------===//
 //  Register Class Definitions...
@@ -119,11 +129,6 @@ def A16 : Z80RC16<(add HL, I16)>;
 def R16 : Z80RC16<(add G16, I16)>;
 let CopyCost = -1 in
 def Z16 : Z80RC16<(add SPS, AF)>;
-//def S16 : Z80RC16<(add R16, AF)>;
-//def L16 : Z80RC16<(add G16, I16)>;
-//def R16 : Z80RC16<(add L16, SPS)>;
-//def S16 : Z80RC16<(add L16, AF)>;
-//def C16 : Z80RC16<(add R16, SPS)>;
 
 def O24 : Z80RC24<(add UDE, UBC)>;
 def G24 : Z80RC24<(add UHL, O24)>;
@@ -134,8 +139,3 @@ def A24 : Z80RC24<(add UHL, I24)>;
 def R24 : Z80RC24<(add G24, I24)>;
 let CopyCost = -1 in
 def Z24 : Z80RC24<(add SPL, PC)>;
-//def S24 : Z80RC24<(add R24, AF)>;
-//def L24 : Z80RC24<(add G24, I24)>;
-//def R24 : Z80RC24<(add L24, SPL)>;
-//def S24 : Z80RC24<(add L24, AF)>;
-//def C24 : Z80RC24<(add R24, SPL)>;
