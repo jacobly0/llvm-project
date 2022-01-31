@@ -46,7 +46,7 @@ Z80RegisterBankInfo::getRegBankFromRegClass(const TargetRegisterClass &RC,
   if (Z80::R8RegClass.hasSubClassEq(&RC) ||
       Z80::R16RegClass.hasSubClassEq(&RC) ||
       Z80::R24RegClass.hasSubClassEq(&RC) ||
-      Z80::F8RegClass.hasSubClassEq(&RC) ||
+      Z80::Z8RegClass.hasSubClassEq(&RC) ||
       Z80::Z16RegClass.hasSubClassEq(&RC) ||
       Z80::Z24RegClass.hasSubClassEq(&RC))
     return getRegBank(Z80::GPRRegBankID);

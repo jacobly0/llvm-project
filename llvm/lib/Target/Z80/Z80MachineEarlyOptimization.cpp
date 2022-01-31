@@ -154,7 +154,7 @@ bool Z80MachineEarlyOptimization::runOnMachineFunction(MachineFunction &MF) {
             }
           }
           if (CallMI && Cost < CondCallThreshold) {
-            Register TempReg = MRI.createVirtualRegister(&Z80::F8RegClass);
+            Register TempReg = MRI.createVirtualRegister(&Z80::Z8RegClass);
             DebugLoc DL = MBB.findBranchDebugLoc();
             MBB.removeSuccessor(FalseMBB);
             TII.removeBranch(MBB);

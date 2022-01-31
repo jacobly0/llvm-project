@@ -176,7 +176,7 @@ const TargetRegisterClass *
 Z80InstructionSelector::getRegClass(Register Reg,
                                     MachineRegisterInfo &MRI) const {
   if (Reg.isPhysical()) {
-    for (auto *RC : {&Z80::R8RegClass, &Z80::F8RegClass, &Z80::R16RegClass,
+    for (auto *RC : {&Z80::R8RegClass, &Z80::Z8RegClass, &Z80::R16RegClass,
                      &Z80::Z16RegClass, &Z80::R24RegClass, &Z80::Z24RegClass})
       if (RC->contains(Reg))
         return RC;
@@ -226,8 +226,9 @@ bool Z80InstructionSelector::selectCopy(MachineInstr &I,
   if (DstReg.isPhysical()) {
     assert(I.isCopy() && "Generic operators do not allow physical registers");
 
-    if (DstReg == Z80::F &&
-        !RBI.constrainGenericRegister(SrcReg, Z80::F8RegClass, MRI))
+    if ((DstReg == Z80::F || DstReg == Z80::I || DstReg == Z80::R ||
+         DstReg == Z80::MB) &&
+        !RBI.constrainGenericRegister(SrcReg, Z80::Z8RegClass, MRI))
       return false;
 
     if (DstSize > SrcSize && SrcRegBank.getID() == Z80::GPRRegBankID &&
@@ -1226,8 +1227,8 @@ Z80InstructionSelector::foldCompare(MachineInstr &I, MachineIRBuilder &MIB,
                                          CallLowering::ArgInfo::NoArgIndex);
     createLibcall(MIB, RTLIB::SCMP, SignedFlagsArg, FlagsArg);
     MIB.buildCopy(Register(Z80::F), SignedFlagsReg);
-    if (!RBI.constrainGenericRegister(FlagsReg, Z80::F8RegClass, MRI) ||
-        !RBI.constrainGenericRegister(SignedFlagsReg, Z80::F8RegClass, MRI))
+    if (!RBI.constrainGenericRegister(FlagsReg, Z80::Z8RegClass, MRI) ||
+        !RBI.constrainGenericRegister(SignedFlagsReg, Z80::Z8RegClass, MRI))
       return Z80::COND_INVALID;
   }
   return CC;

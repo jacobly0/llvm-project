@@ -632,7 +632,7 @@ Z80TargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
     }
 
   if (Z80::parseConstraintCode(Constraint) != Z80::COND_INVALID)
-    return std::make_pair(Z80::F, &Z80::F8RegClass);
+    return std::make_pair(Z80::F, &Z80::Z8RegClass);
 
   // Use the default implementation in TargetLowering to convert the register
   // constraint into a member of a register class.
@@ -640,7 +640,7 @@ Z80TargetLowering::getRegForInlineAsmConstraint(const TargetRegisterInfo *TRI,
 
   if (!Res.second) {
     if (Constraint.equals_insensitive("{f}"))
-      return std::make_pair(Z80::F, &Z80::F8RegClass);
+      return std::make_pair(Z80::F, &Z80::Z8RegClass);
 
     return Res;
   }

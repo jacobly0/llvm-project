@@ -53,7 +53,7 @@ let Namespace = "Z80" in {
 //===----------------------------------------------------------------------===//
 //  Register definitions...
 //
-let Namespace = "Z80" in {
+
 // 8-bit registers
 def A : Z80Reg<"a", 7>;
 def F : Z80Reg<"f">;
@@ -63,11 +63,6 @@ def D : Z80Reg<"d", 2>;
 def E : Z80Reg<"e", 3>;
 def H : Z80Reg<"h", 4>;
 def L : Z80Reg<"l", 5>;
-
-// special registers
-def I : Z80Reg<"i", 8>;
-def R : Z80Reg<"r", 9>;
-def MB : Z80Reg<"mb", 10>;
 
 // 8-bit index registers
 let CostPerUse = [1] in {
@@ -101,10 +96,18 @@ let CostPerUse = [1] in {
   def UIX : EZ80ExtReg<IX>;
   def UIY : EZ80ExtReg<IY>;
 }
-}
-def SPL : Z80Reg<"sp", 3>;
-def PC  : Z80Reg<"pc">;
-}
+
+// 24-bit misc registers
+def SPL : Z80Reg<"sp", 3>, DwarfRegNum<[7]>;
+
+// misc registers
+def PC : Z80Reg<"pc">, DwarfRegNum<[8]>;
+def I  : Z80Reg<"i">;
+let SubRegs = [I], SubRegIndices = [sub_low] in
+def UI : Z80Reg<"i">;
+def R  : Z80Reg<"r">;
+def MB : Z80Reg<"mb">;
+
 //===----------------------------------------------------------------------===//
 //  Register Class Definitions...
 //
@@ -120,7 +123,7 @@ def X8  : Z80RC8 <(add O8, IXL, IXH)>;
 def I8  : Z80RC8 <(add IYL, IYH, IXL, IXH)>;
 def R8  : Z80RC8 <(add G8, I8)>;
 let CopyCost = -1 in
-def F8  : Z80RC8 <(add F)>;
+def Z8  : Z80RC8 <(add F, I, R, MB)>;
 
 def O16 : Z80RC16<(add DE, BC)>;
 def G16 : Z80RC16<(add HL, O16)>;
@@ -130,7 +133,7 @@ def I16 : Z80RC16<(add IY, IX)>;
 def A16 : Z80RC16<(add HL, I16)>;
 def R16 : Z80RC16<(add G16, I16)>;
 let CopyCost = -1 in
-def Z16 : Z80RC16<(add SPS, AF)>;
+def Z16 : Z80RC16<(add SPS, AF, UI)>;
 
 def O24 : Z80RC24<(add UDE, UBC)>;
 def G24 : Z80RC24<(add UHL, O24)>;
