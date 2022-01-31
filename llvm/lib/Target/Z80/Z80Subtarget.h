@@ -52,8 +52,8 @@ class Z80Subtarget final : public Z80GenSubtargetInfo {
   /// True if target has index half registers (HasUndocOps || HasEZ80Ops).
   bool HasIdxHalfRegs = false;
 
-  /// True if target has SLI (also known SLL) instructions (HasUndocOps)
-  bool HasSliOps = false;
+  /// True if target has SLI (also known SLL and SL1) instruction (HasUndocOps)
+  bool HasSliOp = false;
 
   // Ordering here is important. Z80InstrInfo initializes Z80RegisterInfo which
   // Z80TargetLowering needs.
@@ -121,7 +121,7 @@ public:
   bool hasZ180Ops() const { return HasZ180Ops; }
   bool hasEZ80Ops() const { return HasEZ80Ops; }
   bool hasIndexHalfRegs() const { return HasIdxHalfRegs; }
-  bool hasSliOps() const { return HasSliOps; }
+  bool hasSliOp() const { return HasSliOp; }
   bool has24BitEZ80Ops() const { return is24Bit() && hasEZ80Ops(); }
   bool has16BitEZ80Ops() const { return is16Bit() && hasEZ80Ops(); }
 };

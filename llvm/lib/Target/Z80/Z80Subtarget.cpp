@@ -35,7 +35,7 @@ Z80Subtarget &Z80Subtarget::initializeSubtargetDependencies(StringRef CPU,
     CPU = TargetTriple.getArchName();
   ParseSubtargetFeatures(CPU, TuneCPU, FS);
   HasIdxHalfRegs = HasUndocOps || HasEZ80Ops;
-  HasSliOps = HasUndocOps;
+  HasSliOp = HasUndocOps;
   return *this;
 }
 

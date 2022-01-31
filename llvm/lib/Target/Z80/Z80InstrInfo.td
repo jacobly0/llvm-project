@@ -133,9 +133,10 @@ def HaveZ180Ops  : Predicate<"Subtarget->hasZ180Ops()">,
 def HaveEZ80Ops  : Predicate<"Subtarget->hasEZ80Ops()">,
                    AssemblerPredicate<(all_of FeatureEZ80), "eZ80 ops">;
 def HaveIdxHalf  : Predicate<"Subtarget->hasIndexHalfRegs()">,
-                   AssemblerPredicate<"FeatureIdxHalf", "index half regs">;
-def HaveSliOps   : Predicate<"Subtarget->hasSliOps()">,
-                   AssemblerPredicate<"FeatureSli", "sli ops">;
+                   AssemblerPredicate<(all_of FeatureIdxHalf),
+                                      "index half regs">;
+def HaveSliOp    : Predicate<"Subtarget->hasSliOp()">,
+                   AssemblerPredicate<(all_of FeatureSli), "SLI op">;
 
 //===----------------------------------------------------------------------===//
 // Z80 Instruction Format Definitions.
@@ -807,8 +808,7 @@ defm RL  : UnOp8RFF <CBPre, 2, "rl">;
 defm RR  : UnOp8RFF <CBPre, 3, "rr">;
 defm SLA : UnOp8RF  <CBPre, 4, "sla">;
 defm SRA : UnOp8RF  <CBPre, 5, "sra">;
-defm SLI : UnOp8RF  <CBPre, 6, "sli">,
-           Requires<[HaveSliOps]>;
+defm SLI : UnOp8RF  <CBPre, 6, "sli">, Requires<[HaveSliOp]>;
 defm SRL : UnOp8RF  <CBPre, 7, "srl">;
 defm BIT : BitOp8F  <       1, "bit">;
 defm RES : BitOp8R  <       2, "res">;
@@ -823,15 +823,17 @@ defm AND : BinOp8RF <NoPre, 4, "and">;
 defm XOR : BinOp8RF <NoPre, 5, "xor">;
 defm OR  : BinOp8RF <NoPre, 6, "or",  1>;
 defm CP  : BinOp8F  <NoPre, 7, "cp",  1>;
-defm TST : BinOp8F  <EDPre, 4, "tst", 1>,
-           Requires<[HaveZ180Ops]>;
+defm TST : BinOp8F  <EDPre, 4, "tst", 1>, Requires<[HaveZ180Ops]>;
 
-def : MnemonicAlias<"sll", "sli">, Requires<[HaveSliOps]>;
+def : MnemonicAlias<"sll", "sli">, Requires<[HaveSliOp]>;
+def : MnemonicAlias<"sl1", "sli">, Requires<[HaveSliOp]>;
 
 def : Pat<(fshl G8:$reg, G8:$reg, (i8  1)), (RLC8r G8:$reg)>;
 def : Pat<(fshl G8:$reg, G8:$reg, (i8  7)), (RRC8r G8:$reg)>;
 def : Pat<(shl G8:$reg, (i8  1)), (SLA8r G8:$reg)>;
 def : Pat<(sra G8:$reg, (i8  1)), (SRA8r G8:$reg)>;
+def : Pat<(or (shl G8:$reg, (i8  1)), (i8  1)), (SLI8r G8:$reg)>,
+      Requires<[HaveSliOp]>;
 def : Pat<(srl G8:$reg, (i8  1)), (SRL8r G8:$reg)>;
 def : Pat<(add R8:$reg, (i8  1)), (INC8r R8:$reg)>;
 def : Pat<(add R8:$reg, (i8 -1)), (DEC8r R8:$reg)>;

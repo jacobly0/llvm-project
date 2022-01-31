@@ -28,7 +28,7 @@ def FeatureEZ80    : SubtargetFeature<"ez80", "HasEZ80Ops", "true",
                                       "Support ez80 instructions">;
 def FeatureIdxHalf : SubtargetFeature<"idxhalf", "HasIdxHalfRegs", "true",
                                       "Support index half registers">;
-def FeatureSli     : SubtargetFeature<"sli", "HasSliOps", "true",
+def FeatureSli     : SubtargetFeature<"sli", "HasSliOp", "true",
                                       "Support SLI instruction">;
 
 //===----------------------------------------------------------------------===//
