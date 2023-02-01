@@ -145,6 +145,7 @@ bool Z80PostSelectCombiner::runOnMachineFunction(MachineFunction &MF) {
         MI.setDesc(TII.get(DstReg == Z80::SPL ? Z80::LD24sa : Z80::LD16sa));
         MI.removeOperand(0);
         MI.getOperand(0).setReg(TmpReg);
+        MachineInstrBuilder(MF, MI).addReg(DstReg, RegState::ImplicitDefine);
         Changed = true;
         break;
       }
