@@ -18,6 +18,7 @@
 #include "llvm/CodeGen/GlobalISel/LegalizerHelper.h"
 #include "llvm/CodeGen/GlobalISel/MIPatternMatch.h"
 #include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include <functional>
 #include <initializer_list>
 using namespace llvm;
@@ -252,8 +253,7 @@ Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
       {G_FRAME_INDEX, G_GLOBAL_VALUE, G_BRINDIRECT, G_JUMP_TABLE})
       .legalFor({p[0]});
 
-  getActionDefinitionsBuilder(G_VASTART)
-      .customFor({p[0]});
+  getActionDefinitionsBuilder(G_VASTART).customFor({p[0]});
 
   getActionDefinitionsBuilder(G_ICMP)
       .legalForCartesianProduct({s1}, LegalTypes)
@@ -933,11 +933,11 @@ LegalizerHelper::LegalizeResult Z80LegalizerInfo::legalizeMemIntrinsic(
         return LegalizerHelper::Legalized;
       }
       // Lowering memmove generates a lot of code...
-      if (!MF.getFunction().hasOptSize() || Opc != TargetOpcode::G_MEMMOVE) {
+      if (!MF.getFunction().hasOptSize() || Opc != G_MEMMOVE) {
         MachineMemOperand *StoreMMO = MI.memoperands().front();
         MachineMemOperand *LoadMMO;
 
-        if (Opc == TargetOpcode::G_MEMSET) {
+        if (Opc == G_MEMSET) {
           // Store the first byte.
           MIRBuilder.buildStore(SrcReg, DstReg, *StoreMMO);
 
@@ -986,7 +986,7 @@ LegalizerHelper::LegalizeResult Z80LegalizerInfo::legalizeMemIntrinsic(
           MI.eraseFromParent();
           return LegalizerHelper::Legalized;
         }
-        if (Opc == TargetOpcode::G_MEMMOVE && !ConstAddr) {
+        if (Opc == G_MEMMOVE && !ConstAddr) {
           MIRBuilder.buildCopy(HL, SrcReg);
           MIRBuilder.buildInstr(Is24Bit ? Z80::Cmp24ao : Z80::Cmp16ao, {},
                                 {DstReg});
@@ -994,7 +994,7 @@ LegalizerHelper::LegalizeResult Z80LegalizerInfo::legalizeMemIntrinsic(
               .buildInstr(Is24Bit ? Z80::LDR24 : Z80::LDR16, {},
                           {DstReg, SrcReg, LenReg})
               .cloneMemRefs(MI);
-        } else if (Opc != TargetOpcode::G_MEMMOVE ||
+        } else if (Opc != G_MEMMOVE ||
                    (ConstAddr && (ConstDst->Value.ule(ConstSrc->Value) ||
                                   (ConstDst->Value - ConstSrc->Value)
                                       .uge(ConstLen->Value)))) {
@@ -1057,6 +1057,36 @@ bool Z80LegalizerInfo::legalizeIntrinsic(LegalizerHelper &Helper,
     Info.OrigRet = CallLowering::ArgInfo{None, Type::getVoidTy(Ctx), 0};
     if (!CLI.lowerCall(MIRBuilder, Info))
       return false;
+    break;
+  }
+  case Intrinsic::vacopy: {
+    const MachineRegisterInfo &MRI = *MIRBuilder.getMRI();
+    const MachineFrameInfo &MFI = MF.getFrameInfo();
+    const DataLayout &DL = MF.getDataLayout();
+
+    Register DstReg = MI.getOperand(1).getReg();
+    MachineInstr *DstMI = MRI.getVRegDef(DstReg);
+    MachinePointerInfo DstMPI;
+    Align DstAlign = DL.getPointerABIAlignment(0);
+    if (DstMI && DstMI->getOpcode() == G_FRAME_INDEX) {
+      int FI = DstMI->getOperand(1).getIndex();
+      DstMPI = MachinePointerInfo::getFixedStack(MF, FI);
+      DstAlign = MFI.getObjectAlign(FI);
+    }
+
+    Register SrcReg = MI.getOperand(2).getReg();
+    MachineInstr *SrcMI = MRI.getVRegDef(SrcReg);
+    MachinePointerInfo SrcMPI;
+    Align SrcAlign = DL.getPointerABIAlignment(0);
+    if (SrcMI && SrcMI->getOpcode() == G_FRAME_INDEX) {
+      int FI = SrcMI->getOperand(1).getIndex();
+      SrcMPI = MachinePointerInfo::getFixedStack(MF, FI);
+      SrcAlign = MFI.getObjectAlign(FI);
+    }
+
+    LLT p0 = LLT::pointer(0, TM.getPointerSizeInBits(0));
+    MIRBuilder.buildStore(MIRBuilder.buildLoad(p0, SrcReg, SrcMPI, SrcAlign),
+                          DstReg, DstMPI, DstAlign);
     break;
   }
   default:
