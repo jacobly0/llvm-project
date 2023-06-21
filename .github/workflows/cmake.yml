@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runs-on: [ubuntu-latest, macos-latest, windows-latest]
+        runs-on: [ubuntu-20.04, ubuntu-latest, macos-11, macos-latest, windows-latest]
         build-type: [Release]
     runs-on: ${{matrix.runs-on}}
     steps:
@@ -87,7 +87,7 @@ jobs:
       - name: Upload LLVM
         uses: actions/upload-artifact@v3
         with:
-          name: LLVM${{runner.os}}${{matrix.build-type}}
+          name: LLVM${{matrix.runs-on}}${{matrix.build-type}}
           path: llvm
 
       - name: Install ez80-link
@@ -98,7 +98,7 @@ jobs:
       - name: Upload ez80-link
         uses: actions/upload-artifact@v3
         with:
-          name: ez80-link${{env.EXE}}-${{runner.os}}${{matrix.build-type}}
+          name: ez80-link${{env.EXE}}-${{matrix.runs-on}}${{matrix.build-type}}
           path: ez80-link${{env.EXE}}
 
       - name: Install ez80-lto
@@ -109,7 +109,7 @@ jobs:
       - name: Upload ez80-lto
         uses: actions/upload-artifact@v3
         with:
-          name: ez80-lto${{env.EXE}}-${{runner.os}}${{matrix.build-type}}
+          name: ez80-lto${{env.EXE}}-${{matrix.runs-on}}${{matrix.build-type}}
           path: ez80-lto${{env.EXE}}
 
       - name: Install ez80-lto2
@@ -120,7 +120,7 @@ jobs:
       - name: Upload ez80-lto2
         uses: actions/upload-artifact@v3
         with:
-          name: ez80-lto2${{env.EXE}}-${{runner.os}}${{matrix.build-type}}
+          name: ez80-lto2${{env.EXE}}-${{matrix.runs-on}}${{matrix.build-type}}
           path: ez80-lto2${{env.EXE}}
 
       - name: Configure Test
@@ -140,7 +140,7 @@ jobs:
       - name: Upload Test
         uses: actions/upload-artifact@v3
         with:
-          name: Test${{runner.os}}${{matrix.build-type}}
+          name: Test${{matrix.runs-on}}${{matrix.build-type}}
           path: test
 
       - name: Disk Usage
@@ -155,7 +155,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runs-on: [ubuntu-latest, macos-latest, windows-latest]
+        runs-on: [ubuntu-20.04, ubuntu-latest, macos-11, macos-latest, windows-latest]
         build-type: [Release]
     runs-on: ${{matrix.runs-on}}
     steps:
@@ -222,7 +222,7 @@ jobs:
       - name: Download LLVM
         uses: actions/download-artifact@v3
         with:
-          name: LLVM${{runner.os}}${{matrix.build-type}}
+          name: LLVM${{matrix.runs-on}}${{matrix.build-type}}
           path: llvm
       - name: Set Executable
         if: runner.os != 'Windows'
@@ -239,7 +239,7 @@ jobs:
       - name: Upload Clang
         uses: actions/upload-artifact@v3
         with:
-          name: Clang${{runner.os}}${{matrix.build-type}}
+          name: Clang${{matrix.runs-on}}${{matrix.build-type}}
           path: clang
 
       - name: Install ez80-clang
@@ -252,20 +252,20 @@ jobs:
       - name: Upload ez80-clang
         uses: actions/upload-artifact@v3
         with:
-          name: ez80-clang${{env.EXE}}-${{runner.os}}${{matrix.build-type}}
+          name: ez80-clang${{env.EXE}}-${{matrix.runs-on}}${{matrix.build-type}}
           path: ez80-clang${{env.EXE}}
 
       - name: Download Test
         uses: actions/download-artifact@v3
         with:
-          name: Test${{runner.os}}${{matrix.build-type}}
+          name: Test${{matrix.runs-on}}${{matrix.build-type}}
           path: test
       - name: Install Test
         run: cmake -E copy build/bin/arcmt-test${{env.EXE}} build/bin/c-arcmt-test${{env.EXE}} build/bin/clang-diff${{env.EXE}} build/bin/clang-tblgen${{env.EXE}} test/bin
       - name: Upload Test
         uses: actions/upload-artifact@v3
         with:
-          name: Test${{runner.os}}${{matrix.build-type}}
+          name: Test${{matrix.runs-on}}${{matrix.build-type}}
           path: test
 
       - name: Disk Usage
@@ -280,7 +280,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runs-on: [ubuntu-latest, macos-latest, windows-latest]
+        runs-on: [ubuntu-20.04, ubuntu-latest, macos-11, macos-latest, windows-latest]
         build-type: [Release]
     runs-on: ${{matrix.runs-on}}
     steps:
@@ -311,12 +311,12 @@ jobs:
       - name: Download Test
         uses: actions/download-artifact@v3
         with:
-          name: Test${{runner.os}}${{matrix.build-type}}
+          name: Test${{matrix.runs-on}}${{matrix.build-type}}
           path: build
       - name: Download LLVM
         uses: actions/download-artifact@v3
         with:
-          name: LLVM${{runner.os}}${{matrix.build-type}}
+          name: LLVM${{matrix.runs-on}}${{matrix.build-type}}
           path: build
       - name: Set Executable
         if: runner.os != 'Windows'
@@ -332,7 +332,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runs-on: [ubuntu-latest, macos-latest, windows-latest]
+        runs-on: [ubuntu-20.04, ubuntu-latest, macos-11, macos-latest, windows-latest]
         build-type: [Debug]
     continue-on-error: true
     if: false
@@ -363,12 +363,12 @@ jobs:
       - name: Download Test
         uses: actions/download-artifact@v3
         with:
-          name: Test${{runner.os}}${{matrix.build-type}}
+          name: Test${{matrix.runs-on}}${{matrix.build-type}}
           path: build
       - name: Download LLVM
         uses: actions/download-artifact@v3
         with:
-          name: LLVM${{runner.os}}${{matrix.build-type}}
+          name: LLVM${{matrix.runs-on}}${{matrix.build-type}}
           path: build
       - name: Set Executable
         if: runner.os != 'Windows'
@@ -382,7 +382,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runs-on: [ubuntu-latest, macos-latest, windows-latest]
+        runs-on: [ubuntu-20.04, ubuntu-latest, macos-11, macos-latest, windows-latest]
         build-type: [Debug]
     continue-on-error: true
     if: false
@@ -413,17 +413,17 @@ jobs:
       - name: Download Test
         uses: actions/download-artifact@v3
         with:
-          name: Test${{runner.os}}${{matrix.build-type}}
+          name: Test${{matrix.runs-on}}${{matrix.build-type}}
           path: build
       - name: Download LLVM
         uses: actions/download-artifact@v3
         with:
-          name: LLVM${{runner.os}}${{matrix.build-type}}
+          name: LLVM${{matrix.runs-on}}${{matrix.build-type}}
           path: build
       - name: Download Clang
         uses: actions/download-artifact@v3
         with:
-          name: Clang${{runner.os}}${{matrix.build-type}}
+          name: Clang${{matrix.runs-on}}${{matrix.build-type}}
           path: build
       - name: Set Executable
         if: runner.os != 'Windows'
