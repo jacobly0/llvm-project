@@ -102,15 +102,17 @@ bool Z80MachineEarlyOptimization::runOnMachineFunction(MachineFunction &MF) {
               break;
             }
             if (CallMI && Opc == TargetOpcode::COPY) {
-              if (Results.size() == 4) {
-                CallMI = nullptr;
-                break;
+              Register DstReg = I->getOperand(0).getReg();
+              Register SrcReg = I->getOperand(1).getReg();
+              if (DstReg.isVirtual() && SrcReg.isPhysical()) {
+                if (Results.size() == 4) {
+                  CallMI = nullptr;
+                  break;
+                }
+                Result &Res = Results.emplace_back();
+                Res.TrueReg = DstReg;
+                Res.PhysReg = SrcReg;
               }
-              Result &Res = Results.emplace_back();
-              Res.TrueReg = I->getOperand(0).getReg();
-              Res.PhysReg = I->getOperand(1).getReg();
-              assert(Res.TrueReg.isVirtual() && Res.PhysReg.isPhysical() &&
-                     "Expected phys to virt reg copy inside call sequence");
             }
           }
           for (I = FalseMBB->begin(), E = FalseMBB->end(); CallMI && I != E && I->isPHI();
