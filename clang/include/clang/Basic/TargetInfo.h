@@ -429,6 +429,11 @@ public:
     return PointerWidth;
   }
 
+  /// Return the maximum width of pointers on this target.
+  virtual uint64_t getMaxPointerAlign() const {
+    return PointerAlign;
+  }
+
   /// Get integer value for null pointer.
   /// \param AddrSpace address space of pointee in source language.
   virtual uint64_t getNullPointerValue(LangAS AddrSpace) const { return 0; }
