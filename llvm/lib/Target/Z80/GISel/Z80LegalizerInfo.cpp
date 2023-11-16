@@ -29,7 +29,13 @@ using namespace MIPatternMatch;
 Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
                                    const Z80TargetMachine &TM)
     : Subtarget(STI), TM(TM) {
+  using namespace LegalityPredicates;
+  using namespace LegalizeMutations;
+
   bool Is24Bit = Subtarget.is24Bit();
+  LegalityPredicate pred24Bit = [=](const LegalityQuery &) { return Is24Bit; };
+
+  LegalityPredicate predZ180Ops = [this](const LegalityQuery &) { return Subtarget.hasZ180Ops(); };
 
   std::array<LLT, 5> p;
   for (int AddrSpace = 0; AddrSpace != p.size(); ++AddrSpace)
@@ -39,6 +45,7 @@ Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
   LLT s16 = LLT::scalar(16);
   LLT s24 = LLT::scalar(24);
   LLT s32 = LLT::scalar(32);
+  LLT s48 = LLT::scalar(48);
   LLT s64 = LLT::scalar(64);
   LLT sMax = Is24Bit ? s24 : s16;
   LLT sOther = Is24Bit ? s16 : s24;
@@ -159,13 +166,15 @@ Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
       .legalForCartesianProduct(LegalScalars, {s1})
       .clampScalar(0, s8, sMax);
 
-  {
-    auto &&Mul = getActionDefinitionsBuilder(G_MUL);
-    if (Subtarget.hasZ180Ops())
-      Mul.legalFor({s8});
-    Mul.libcallFor(LegalLibcallScalars)
-        .clampScalar(0, s8, s32);
-  }
+  getActionDefinitionsBuilder(G_MUL)
+      .legalIf(all(predZ180Ops, typeIs(0, s8)))
+      .libcallFor(LegalLibcallScalars)
+      .minScalar(0, s8)
+      .minScalar(0, s16)
+      .minScalarIf(pred24Bit, 0, s24)
+      .minScalar(0, s32)
+      .minScalar(0, s64)
+      .maxScalar(0, s64);
 
   getActionDefinitionsBuilder({G_SDIV, G_UDIV, G_SREM, G_UREM})
       .libcallFor(LegalLibcallScalars)
@@ -179,7 +188,12 @@ Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
   getActionDefinitionsBuilder({G_SHL, G_LSHR, G_ASHR})
       .customForCartesianProduct(LegalLibcallScalars, {s8})
       .clampScalar(1, s8, s8)
-      .clampScalar(0, s8, s64);
+      .minScalar(0, s8)
+      .minScalar(0, s16)
+      .minScalarIf(pred24Bit, 0, s24)
+      .minScalar(0, s32)
+      .minScalar(0, s64)
+      .maxScalar(0, s64);
 
   getActionDefinitionsBuilder({G_FSHL, G_FSHR, G_ROTR, G_ROTL, G_UMULO,
                                G_UMULFIX, G_SMULFIX, G_SMULFIXSAT, G_UMULFIXSAT,
