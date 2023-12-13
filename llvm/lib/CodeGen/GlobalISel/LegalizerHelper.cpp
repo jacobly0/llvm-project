@@ -521,6 +521,8 @@ static RTLIB::Libcall getRTLibDesc(unsigned Opcode, unsigned Size) {
       return RTLIB::LibcallPrefix##24;                                         \
     case 32:                                                                   \
       return RTLIB::LibcallPrefix##32;                                         \
+    case 48:                                                                   \
+      return RTLIB::LibcallPrefix##48;                                         \
     case 64:                                                                   \
       return RTLIB::LibcallPrefix##64;                                         \
     case 128:                                                                  \

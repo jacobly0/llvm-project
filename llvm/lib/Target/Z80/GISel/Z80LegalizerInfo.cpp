@@ -60,7 +60,7 @@ Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
   auto LegalScalars24 = {s8, s16, s24};
   auto LegalScalars16 = {s8, s16};
   auto LegalScalars = Is24Bit ? LegalScalars24 : LegalScalars16;
-  auto LegalLibcallScalars24 = {s8, s16, s24, s32, s64};
+  auto LegalLibcallScalars24 = {s8, s16, s24, s32, s48, s64};
   auto LegalLibcallScalars16 = {s8, s16, s32, s64};
   auto LegalLibcallScalars =
       Is24Bit ? LegalLibcallScalars24 : LegalLibcallScalars16;
@@ -158,6 +158,7 @@ Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
 
   getActionDefinitionsBuilder({G_ADD, G_SUB})
       .legalFor({s8})
+      .narrowScalarIf(all(pred24Bit, typeIs(0, s48)), changeTo(0, s24))
       .customFor(LegalLibcallScalars)
       .clampScalar(0, s8, sMax);
 
@@ -173,8 +174,9 @@ Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
       .minScalar(0, s16)
       .minScalarIf(pred24Bit, 0, s24)
       .minScalar(0, s32)
+      .minScalarIf(pred24Bit, 0, s48)
       .minScalar(0, s64)
-      .maxScalar(0, s64);
+      .maxScalar(0, s32);
 
   getActionDefinitionsBuilder({G_SDIV, G_UDIV, G_SREM, G_UREM})
       .libcallFor(LegalLibcallScalars)
