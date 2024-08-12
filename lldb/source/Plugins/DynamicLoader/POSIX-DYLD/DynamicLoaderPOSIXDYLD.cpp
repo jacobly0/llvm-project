@@ -69,8 +69,8 @@ DynamicLoaderPOSIXDYLD::DynamicLoaderPOSIXDYLD(Process *process)
       m_load_offset(LLDB_INVALID_ADDRESS), m_entry_point(LLDB_INVALID_ADDRESS),
       m_auxv(), m_dyld_bid(LLDB_INVALID_BREAK_ID),
       m_vdso_base(LLDB_INVALID_ADDRESS),
-      m_interpreter_base(LLDB_INVALID_ADDRESS), m_initial_modules_added(false) {
-}
+      m_interpreter_base(LLDB_INVALID_ADDRESS), m_initial_modules_added(false),
+      m_tls_memsz(LLDB_INVALID_ADDRESS) {}
 
 DynamicLoaderPOSIXDYLD::~DynamicLoaderPOSIXDYLD() {
   if (m_dyld_bid != LLDB_INVALID_BREAK_ID) {
@@ -730,6 +730,114 @@ DynamicLoaderPOSIXDYLD::GetThreadLocalData(const lldb::ModuleSP module_sp,
                                            const lldb::ThreadSP thread,
                                            lldb::addr_t tls_file_addr) {
   Log *log = GetLog(LLDBLog::DynamicLoader);
+
+  if (m_interpreter_base == 0) {
+    // not a dynamic executable
+    if (module_sp != m_process->GetTarget().GetExecutableModule())
+      return LLDB_INVALID_ADDRESS;
+    const ArchSpec &arch = module_sp->GetArchitecture();
+    int64_t modid = 1;
+    uint32_t dtv_slot_size = arch.GetAddressByteSize();
+    uint32_t tls_offset = 0;
+    switch (arch.GetMachine()) {
+    default:
+      return LLDB_INVALID_ADDRESS;
+    case llvm::Triple::arc:
+    case llvm::Triple::arm:
+    case llvm::Triple::armeb:
+    case llvm::Triple::aarch64:
+    case llvm::Triple::aarch64_be:
+    case llvm::Triple::csky:
+    case llvm::Triple::thumb:
+    case llvm::Triple::thumbeb:
+    case llvm::Triple::loongarch32:
+    case llvm::Triple::loongarch64:
+    case llvm::Triple::m68k:
+    case llvm::Triple::mips:
+    case llvm::Triple::mipsel:
+    case llvm::Triple::mips64:
+    case llvm::Triple::mips64el:
+    case llvm::Triple::ppc:
+    case llvm::Triple::ppcle:
+    case llvm::Triple::ppc64:
+    case llvm::Triple::ppc64le:
+    case llvm::Triple::riscv32:
+    case llvm::Triple::riscv64: {
+      // Get the thread pointer.
+      addr_t tp = thread->GetThreadPointer();
+      if (tp == LLDB_INVALID_ADDRESS) {
+        LLDB_LOGF(log, "GetThreadLocalData error: fail to read thread pointer");
+        return LLDB_INVALID_ADDRESS;
+      }
+
+      // Variant I
+      addr_t dtv = ReadPointer(tp);
+      if (dtv == LLDB_INVALID_ADDRESS) {
+        LLDB_LOGF(log, "GetThreadLocalData error: fail to read dtv");
+        return LLDB_INVALID_ADDRESS;
+      }
+
+      addr_t dtv_slot = dtv + dtv_slot_size * modid;
+      addr_t tls_block = ReadPointer(dtv_slot + tls_offset);
+
+      LLDB_LOGF(log,
+                "DynamicLoaderPOSIXDYLD::Performed TLS lookup: "
+                "module=%s, tp=0x%" PRIx64 ", modid=%" PRId64
+                ", tls_block=0x%" PRIx64 "\n",
+                module_sp->GetObjectName().AsCString(""), tp, (int64_t)modid,
+                tls_block);
+
+      if (tls_block == LLDB_INVALID_ADDRESS) {
+        LLDB_LOGF(log, "GetThreadLocalData error: fail to read tls_block");
+        return LLDB_INVALID_ADDRESS;
+      } else
+        return tls_block + tls_file_addr;
+    }
+    case llvm::Triple::hexagon:
+    case llvm::Triple::systemz:
+    case llvm::Triple::sparcv9:
+    case llvm::Triple::x86:
+    case llvm::Triple::x86_64: {
+      // Get the thread pointer.
+      addr_t tp = thread->GetThreadPointer();
+      if (tp == LLDB_INVALID_ADDRESS) {
+        LLDB_LOGF(log, "GetThreadLocalData error: fail to read thread pointer");
+        return LLDB_INVALID_ADDRESS;
+      }
+
+      // Variant II
+      addr_t tcb = ReadPointer(tp);
+      if (tcb == LLDB_INVALID_ADDRESS) {
+        LLDB_LOGF(log, "GetThreadLocalData error: fail to read tcb");
+        return LLDB_INVALID_ADDRESS;
+      }
+
+      if (m_tls_memsz == LLDB_INVALID_ADDRESS) {
+        m_tls_memsz = 0;
+        if (SectionList *sections = module_sp->GetSectionList()) {
+          size_t num_sections = sections->GetSize();
+          for (size_t sect_idx = 0; sect_idx < num_sections; sect_idx++) {
+            SectionSP section_sp = sections->GetSectionAtIndex(sect_idx);
+            if (section_sp->IsThreadSpecific()) {
+              m_tls_memsz = section_sp->GetByteSize();
+              break;
+            }
+          }
+        }
+      }
+
+      addr_t tls_block = tcb - m_tls_memsz;
+      LLDB_LOGF(log,
+                "DynamicLoaderPOSIXDYLD::Performed TLS lookup: "
+                "module=%s, tp=0x%" PRIx64 ", modid=%" PRId64
+                ", tls_block=0x%" PRIx64 "\n",
+                module_sp->GetObjectName().AsCString(""), tp, (int64_t)modid,
+                tls_block);
+      return tls_block + tls_file_addr;
+    }
+    }
+  }
+
   auto it = m_loaded_modules.find(module_sp);
   if (it == m_loaded_modules.end()) {
     LLDB_LOGF(

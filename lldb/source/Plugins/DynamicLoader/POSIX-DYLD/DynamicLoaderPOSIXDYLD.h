@@ -97,6 +97,12 @@ protected:
   std::map<lldb::ModuleWP, lldb::addr_t, std::owner_less<lldb::ModuleWP>>
       m_loaded_modules;
 
+  /// Indicates whether the initial set of modules was reported added.
+  bool m_initial_modules_added;
+
+  /// Cache exec tls size.
+  lldb::addr_t m_tls_memsz;
+
   /// Returns true if the process is for a core file.
   bool IsCoreFile() const;
 
@@ -109,9 +115,6 @@ protected:
   static bool RendezvousBreakpointHit(
       void *baton, lldb_private::StoppointCallbackContext *context,
       lldb::user_id_t break_id, lldb::user_id_t break_loc_id);
-
-  /// Indicates whether the initial set of modules was reported added.
-  bool m_initial_modules_added;
 
   /// Helper method for RendezvousBreakpointHit.  Updates LLDB's current set
   /// of loaded modules.
