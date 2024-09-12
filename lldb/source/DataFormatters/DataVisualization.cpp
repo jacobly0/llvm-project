@@ -108,9 +108,13 @@ void DataVisualization::Categories::Clear(ConstString category) {
 
 void DataVisualization::Categories::Enable(ConstString category,
                                            TypeCategoryMap::Position pos) {
-  if (GetFormatManager().GetCategory(category)->IsEnabled())
+  lldb::TypeCategoryImplSP category_sp =
+      GetFormatManager().GetCategory(category);
+  if (category_sp->IsEnabled())
     GetFormatManager().DisableCategory(category);
-  GetFormatManager().EnableCategory(category, pos, {});
+  GetFormatManager().EnableCategory(category_sp, pos);
+  if (!category_sp->GetNumLanguages())
+    category_sp->AddLanguage(lldb::eLanguageTypeUnknown);
 }
 
 void DataVisualization::Categories::Enable(lldb::LanguageType lang_type) {
