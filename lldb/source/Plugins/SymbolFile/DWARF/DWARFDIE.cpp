@@ -89,7 +89,7 @@ elaborating_dies(const DWARFDIE &die) {
 DWARFDIE
 DWARFDIE::GetParent() const {
   if (IsValid())
-    return DWARFDIE(m_cu, m_die->GetParent());
+    return DWARFDIE(m_cu, m_die->GetParent(m_cu));
   else
     return DWARFDIE();
 }
@@ -560,8 +560,9 @@ bool DWARFDIE::IsMethod() const {
 
 bool DWARFDIE::GetDIENamesAndRanges(
     const char *&name, const char *&mangled, DWARFRangeList &ranges,
-    std::optional<int> &decl_file, std::optional<int> &decl_line,
-    std::optional<int> &decl_column, std::optional<int> &call_file,
+    std::optional<std::pair<DWARFUnit *, int>> &decl_file,
+    std::optional<int> &decl_line, std::optional<int> &decl_column,
+    std::optional<std::pair<DWARFUnit *, int>> &call_file,
     std::optional<int> &call_line, std::optional<int> &call_column,
     lldb_private::DWARFExpressionList *frame_base) const {
   if (IsValid()) {

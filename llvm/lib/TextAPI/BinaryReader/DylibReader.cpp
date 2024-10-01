@@ -473,7 +473,7 @@ accumulateLocs(MachOObjectFile &Obj,
                                  : DWARFCU->getVariableForAddress(Address);
     const std::string File = DIE.getDeclFile(
         llvm::DILineInfoSpecifier::FileLineInfoKind::AbsoluteFilePath);
-    const uint64_t Line = DIE.getDeclLine();
+    const uint64_t Line = DIE.getDeclLine().value_or(0);
 
     auto NameOrErr = Symbol.getName();
     if (!NameOrErr) {

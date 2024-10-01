@@ -43,7 +43,11 @@ extern int g_verbose;
 // starting at the offset in offset_ptr
 bool DWARFDebugInfoEntry::Extract(const DWARFDataExtractor &data,
                                   const DWARFUnit &unit,
-                                  lldb::offset_t *offset_ptr) {
+                                  lldb::offset_t *offset_ptr,
+                                  bool *has_parent_attr) {
+  if (has_parent_attr)
+    *has_parent_attr = false;
+
   m_offset = *offset_ptr;
   auto report_error = [&](const char *fmt, const auto &...vals) {
     unit.GetSymbolFileDWARF().GetObjectFile()->GetModule()->ReportError(
@@ -75,6 +79,8 @@ bool DWARFDebugInfoEntry::Extract(const DWARFDataExtractor &data,
   m_has_children = abbrevDecl->hasChildren();
   // Skip all data in the .debug_info or .debug_types for the attributes
   for (const auto &attribute : abbrevDecl->attributes()) {
+    if (has_parent_attr and attribute.Attr == DW_AT_ZIG_parent)
+      *has_parent_attr = true;
     if (DWARFFormValue::SkipValue(attribute.Form, data, offset_ptr, &unit))
       continue;
 
@@ -118,12 +124,15 @@ static void ExtractAttrAndFormValue(
 // DW_AT_low_pc/DW_AT_high_pc pair, DW_AT_entry_pc, or DW_AT_ranges attributes.
 bool DWARFDebugInfoEntry::GetDIENamesAndRanges(
     DWARFUnit *cu, const char *&name, const char *&mangled,
-    DWARFRangeList &ranges, std::optional<int> &decl_file,
+    DWARFRangeList &ranges,
+    std::optional<std::pair<DWARFUnit *, int>> &decl_file,
     std::optional<int> &decl_line, std::optional<int> &decl_column,
-    std::optional<int> &call_file, std::optional<int> &call_line,
-    std::optional<int> &call_column, DWARFExpressionList *frame_base) const {
+    std::optional<std::pair<DWARFUnit *, int>> &call_file,
+    std::optional<int> &call_line, std::optional<int> &call_column,
+    DWARFExpressionList *frame_base) const {
   dw_addr_t lo_pc = LLDB_INVALID_ADDRESS;
   dw_addr_t hi_pc = LLDB_INVALID_ADDRESS;
+  DWARFDIE parent;
   std::vector<DWARFDIE> dies;
   bool set_frame_base_loclist_addr = false;
 
@@ -198,7 +207,7 @@ bool DWARFDebugInfoEntry::GetDIENamesAndRanges(
 
         case DW_AT_decl_file:
           if (!decl_file)
-            decl_file = form_value.Unsigned();
+            decl_file = std::make_pair(cu, form_value.Unsigned());
           break;
 
         case DW_AT_decl_line:
@@ -213,7 +222,7 @@ bool DWARFDebugInfoEntry::GetDIENamesAndRanges(
 
         case DW_AT_call_file:
           if (!call_file)
-            call_file = form_value.Unsigned();
+            call_file = std::make_pair(cu, form_value.Unsigned());
           break;
 
         case DW_AT_call_line:
@@ -253,6 +262,10 @@ bool DWARFDebugInfoEntry::GetDIENamesAndRanges(
           }
           break;
 
+        case DW_AT_ZIG_parent:
+          parent = form_value.Reference();
+          break;
+
         default:
           break;
         }
@@ -275,16 +288,31 @@ bool DWARFDebugInfoEntry::GetDIENamesAndRanges(
     frame_base->SetFuncFileAddress(lowest_range_pc);
   }
 
-  if (ranges.IsEmpty() || name == nullptr || mangled == nullptr) {
-    for (const DWARFDIE &die : dies) {
-      if (die) {
-        die.GetDIE()->GetDIENamesAndRanges(die.GetCU(), name, mangled, ranges,
-                                           decl_file, decl_line, decl_column,
-                                           call_file, call_line, call_column);
-      }
+  if (!name || !mangled || ranges.IsEmpty() || !decl_file)
+    for (const DWARFDIE &die : dies)
+      die.GetDIENamesAndRanges(name, mangled, ranges, decl_file, decl_line,
+                               decl_column, call_file, call_line, call_column,
+                               frame_base);
+  if (ranges.IsEmpty())
+    return false;
+  if (decl_file)
+    return true;
+  if (!parent)
+    parent = DWARFDIE(cu, GetParent(cu));
+  while (parent) {
+    if (auto parent_decl_file =
+            parent.GetAttributeValueAsOptionalUnsigned(DW_AT_decl_file)) {
+      decl_file = std::make_pair(parent.GetCU(), *parent_decl_file);
+      return true;
     }
+    parent = parent.GetParent();
   }
-  return !ranges.IsEmpty();
+  return true;
+}
+
+const DWARFDebugInfoEntry *
+DWARFDebugInfoEntry::GetParentAttr(const DWARFUnit *cu) const {
+  return GetAttributeValueAsReference(cu, DW_AT_ZIG_parent).GetDIE();
 }
 
 // Get all attribute values for a given DIE, including following any
@@ -613,10 +641,11 @@ DWARFDebugInfoEntry::GetAbbreviationDeclarationPtr(const DWARFUnit *cu) const {
   return abbrev_set->getAbbreviationDeclaration(m_abbr_idx);
 }
 
-bool DWARFDebugInfoEntry::IsGlobalOrStaticScopeVariable() const {
+bool DWARFDebugInfoEntry::IsGlobalOrStaticScopeVariable(
+    const DWARFUnit *cu) const {
   if (Tag() != DW_TAG_variable)
     return false;
-  const DWARFDebugInfoEntry *parent_die = GetParent();
+  const DWARFDebugInfoEntry *parent_die = GetParent(cu);
   while (parent_die != nullptr) {
     switch (parent_die->Tag()) {
     case DW_TAG_subprogram:
@@ -631,7 +660,7 @@ bool DWARFDebugInfoEntry::IsGlobalOrStaticScopeVariable() const {
     default:
       break;
     }
-    parent_die = parent_die->GetParent();
+    parent_die = parent_die->GetParent(cu);
   }
   return false;
 }

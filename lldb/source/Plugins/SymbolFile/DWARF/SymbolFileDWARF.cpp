@@ -145,17 +145,57 @@ static PluginProperties &GetGlobalPluginProperties() {
 
 static const llvm::DWARFDebugLine::LineTable *
 ParseLLVMLineTable(DWARFContext &context, llvm::DWARFDebugLine &line,
-                   dw_offset_t line_offset, dw_offset_t unit_offset) {
+                   dw_offset_t line_offset, DWARFUnit *unit) {
   Log *log = GetLog(DWARFLog::DebugInfo);
 
   llvm::DWARFDataExtractor data = context.getOrLoadLineData().GetAsLLVMDWARF();
   llvm::DWARFContext &ctx = context.GetAsLLVM();
   llvm::Expected<const llvm::DWARFDebugLine::LineTable *> line_table =
       line.getOrParseLineTable(
-          data, line_offset, ctx, nullptr, [&](llvm::Error e) {
+          data, line_offset, ctx, nullptr,
+          [&](llvm::Error e) {
             LLDB_LOG_ERROR(
                 log, std::move(e),
                 "SymbolFileDWARF::ParseLineTable failed to parse: {0}");
+          },
+          [&](uint64_t decl_die_offset) {
+            llvm::DWARFDebugLine::DeclInfo info;
+            for (DWARFDIE decl_die = unit->GetDIE(decl_die_offset);
+                 !(info.Address && info.Line && info.Column && info.File) &&
+                 decl_die;
+                 decl_die = decl_die.GetParent()) {
+              DWARFAttributes attributes = decl_die.GetAttributes();
+              for (size_t i = 0; i < attributes.Size(); ++i) {
+                dw_attr_t attr = attributes.AttributeAtIndex(i);
+                DWARFFormValue form_value;
+
+                if (!attributes.ExtractFormValueAtIndex(i, form_value))
+                  continue;
+                switch (attr) {
+                case DW_AT_low_pc:
+                  if (!info.Address) {
+                    info.Address = llvm::object::SectionedAddress();
+                    info.Address->Address = form_value.Address();
+                  }
+                  break;
+                case DW_AT_decl_line:
+                  if (!info.Line)
+                    info.Line = form_value.Unsigned();
+                  break;
+                case DW_AT_decl_column:
+                  if (!info.Column)
+                    info.Column = form_value.Unsigned();
+                  break;
+                case DW_AT_decl_file:
+                  if (!info.File)
+                    info.File = form_value.Unsigned();
+                  break;
+                default:
+                  break;
+                }
+              }
+            }
+            return info;
           });
 
   if (!line_table) {
@@ -1238,7 +1278,7 @@ bool SymbolFileDWARF::ParseLineTable(CompileUnit &comp_unit) {
   ElapsedTime elapsed(m_parse_time);
   llvm::DWARFDebugLine line;
   const llvm::DWARFDebugLine::LineTable *line_table =
-      ParseLLVMLineTable(m_context, line, offset, dwarf_cu->GetOffset());
+      ParseLLVMLineTable(m_context, line, offset, dwarf_cu);
 
   if (!line_table)
     return false;
@@ -1332,8 +1372,9 @@ bool SymbolFileDWARF::ParseDebugMacros(CompileUnit &comp_unit) {
 }
 
 size_t SymbolFileDWARF::ParseBlocksRecursive(
-    lldb_private::CompileUnit &comp_unit, Block *parent_block,
-    const DWARFDIE &orig_die, addr_t subprogram_low_pc, uint32_t depth) {
+    Block *parent_block, const DWARFDIE &orig_die, addr_t subprogram_low_pc,
+    uint32_t depth,
+    std::optional<std::pair<DWARFUnit *, int>> parent_decl_file) {
   size_t blocks_added = 0;
   DWARFDIE die = orig_die;
   while (die) {
@@ -1362,10 +1403,10 @@ size_t SymbolFileDWARF::ParseBlocksRecursive(
       const char *name = nullptr;
       const char *mangled_name = nullptr;
 
-      std::optional<int> decl_file;
+      std::optional<std::pair<DWARFUnit *, int>> decl_file;
       std::optional<int> decl_line;
       std::optional<int> decl_column;
-      std::optional<int> call_file;
+      std::optional<std::pair<DWARFUnit *, int>> call_file;
       std::optional<int> call_line;
       std::optional<int> call_column;
       if (die.GetDIENamesAndRanges(name, mangled_name, ranges, decl_file,
@@ -1412,16 +1453,17 @@ size_t SymbolFileDWARF::ParseBlocksRecursive(
           std::unique_ptr<Declaration> decl_up;
           if (decl_file || decl_line || decl_column)
             decl_up = std::make_unique<Declaration>(
-                comp_unit.GetSupportFiles().GetFileSpecAtIndex(
-                    decl_file ? *decl_file : 0),
-                decl_line ? *decl_line : 0, decl_column ? *decl_column : 0);
+                decl_file ? decl_file->first->GetFile(decl_file->second)
+                          : die.GetCU()->GetFile(0),
+                decl_line.value_or(0), decl_column.value_or(0));
 
           std::unique_ptr<Declaration> call_up;
+          call_file = call_file ? call_file : parent_decl_file;
           if (call_file || call_line || call_column)
             call_up = std::make_unique<Declaration>(
-                comp_unit.GetSupportFiles().GetFileSpecAtIndex(
-                    call_file ? *call_file : 0),
-                call_line ? *call_line : 0, call_column ? *call_column : 0);
+                call_file ? call_file->first->GetFile(call_file->second)
+                          : die.GetCU()->GetFile(0),
+                call_line.value_or(0), call_column.value_or(0));
 
           block->SetInlinedFunctionInfo(name, mangled_name, decl_up.get(),
                                         call_up.get());
@@ -1431,8 +1473,8 @@ size_t SymbolFileDWARF::ParseBlocksRecursive(
 
         if (die.HasChildren()) {
           blocks_added +=
-              ParseBlocksRecursive(comp_unit, block, die.GetFirstChild(),
-                                   subprogram_low_pc, depth + 1);
+              ParseBlocksRecursive(block, die.GetFirstChild(),
+                                   subprogram_low_pc, depth + 1, decl_file);
         }
       }
     } break;
@@ -2937,15 +2979,15 @@ TypeSP SymbolFileDWARF::GetTypeForDIE(const DWARFDIE &die,
         scope = GetObjectFile()->GetModule().get();
       assert(scope);
       SymbolContext sc(scope);
-      const DWARFDebugInfoEntry *parent_die = die.GetParent().GetDIE();
-      while (parent_die != nullptr) {
-        if (parent_die->Tag() == DW_TAG_subprogram)
+      DWARFDIE parent_die = die.GetParent();
+      while (parent_die) {
+        if (parent_die.Tag() == DW_TAG_subprogram)
           break;
-        parent_die = parent_die->GetParent();
+        parent_die = parent_die.GetParent();
       }
       SymbolContext sc_backup = sc;
-      if (resolve_function_context && parent_die != nullptr &&
-          !GetFunction(DWARFDIE(die.GetCU(), parent_die), sc))
+      if (resolve_function_context && parent_die &&
+          !GetFunction(parent_die, sc))
         sc = sc_backup;
 
       type_sp = ParseType(sc, die, nullptr);
@@ -3300,8 +3342,8 @@ size_t SymbolFileDWARF::ParseBlocksRecursive(Function &func) {
   DWARFDIE function_die =
       dwarf_cu->GetNonSkeletonUnit().GetDIE(function_die_offset);
   if (function_die) {
-    ParseBlocksRecursive(*comp_unit, &func.GetBlock(false), function_die,
-                         LLDB_INVALID_ADDRESS, 0);
+    ParseBlocksRecursive(&func.GetBlock(false), function_die,
+                         LLDB_INVALID_ADDRESS, 0, std::nullopt);
   }
 
   return functions_added;
@@ -3677,8 +3719,7 @@ VariableSP SymbolFileDWARF::ParseVariableDIE(const SymbolContext &sc,
         }
       }
     } else {
-      if (location_is_const_value_data &&
-          die.GetDIE()->IsGlobalOrStaticScopeVariable())
+      if (location_is_const_value_data && die.IsGlobalOrStaticScopeVariable())
         scope = eValueTypeVariableStatic;
       else {
         scope = eValueTypeVariableLocal;

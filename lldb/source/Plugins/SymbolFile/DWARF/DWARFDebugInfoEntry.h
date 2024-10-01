@@ -50,7 +50,7 @@ public:
                                       DWARFDebugAranges *debug_aranges) const;
 
   bool Extract(const DWARFDataExtractor &data, const DWARFUnit &cu,
-               lldb::offset_t *offset_ptr);
+               lldb::offset_t *offset_ptr, bool *has_parent_attr = nullptr);
 
   using Recurse = DWARFBaseDIE::Recurse;
   DWARFAttributes GetAttributes(DWARFUnit *cu,
@@ -107,15 +107,14 @@ public:
 
   const char *GetPubname(const DWARFUnit *cu) const;
 
-  bool GetDIENamesAndRanges(DWARFUnit *cu, const char *&name,
-                            const char *&mangled, DWARFRangeList &rangeList,
-                            std::optional<int> &decl_file,
-                            std::optional<int> &decl_line,
-                            std::optional<int> &decl_column,
-                            std::optional<int> &call_file,
-                            std::optional<int> &call_line,
-                            std::optional<int> &call_column,
-                            DWARFExpressionList *frame_base = nullptr) const;
+  bool GetDIENamesAndRanges(
+      DWARFUnit *cu, const char *&name, const char *&mangled,
+      DWARFRangeList &rangeList,
+      std::optional<std::pair<DWARFUnit *, int>> &decl_file,
+      std::optional<int> &decl_line, std::optional<int> &decl_column,
+      std::optional<std::pair<DWARFUnit *, int>> &call_file,
+      std::optional<int> &call_line, std::optional<int> &call_column,
+      DWARFExpressionList *frame_base = nullptr) const;
 
   const llvm::DWARFAbbreviationDeclaration *
   GetAbbreviationDeclarationPtr(const DWARFUnit *cu) const;
@@ -134,11 +133,13 @@ public:
 
   // We know we are kept in a vector of contiguous entries, so we know
   // our parent will be some index behind "this".
-  DWARFDebugInfoEntry *GetParent() {
-    return m_parent_idx > 0 ? this - m_parent_idx : nullptr;
+  DWARFDebugInfoEntry *GetParent(DWARFUnit *cu) {
+    return m_parent_idx > 0
+               ? this - m_parent_idx
+               : const_cast<DWARFDebugInfoEntry *>(GetParentAttr(cu));
   }
-  const DWARFDebugInfoEntry *GetParent() const {
-    return m_parent_idx > 0 ? this - m_parent_idx : nullptr;
+  const DWARFDebugInfoEntry *GetParent(const DWARFUnit *cu) const {
+    return m_parent_idx > 0 ? this - m_parent_idx : GetParentAttr(cu);
   }
   // We know we are kept in a vector of contiguous entries, so we know
   // our sibling will be some index after "this".
@@ -164,7 +165,7 @@ public:
   // This function returns true if the variable scope is either
   // global or (file-static). It will return false for static variables
   // that are local to a function, as they have local scope.
-  bool IsGlobalOrStaticScopeVariable() const;
+  bool IsGlobalOrStaticScopeVariable(const DWARFUnit *cu) const;
 
 protected:
   // Up to 2TB offset within the .debug_info/.debug_types
@@ -183,6 +184,8 @@ protected:
   dw_tag_t m_tag = llvm::dwarf::DW_TAG_null;
 
 private:
+  const DWARFDebugInfoEntry *GetParentAttr(const DWARFUnit *cu) const;
+
   void GetAttributes(DWARFUnit *cu, DWARFAttributes &attrs, Recurse recurse,
                      uint32_t curr_depth) const;
 };

@@ -117,6 +117,8 @@ public:
   enum class Recurse : bool { no, yes };
   DWARFAttributes GetAttributes(Recurse recurse = Recurse::yes) const;
 
+  bool IsGlobalOrStaticScopeVariable() const;
+
 protected:
   DWARFUnit *m_cu = nullptr;
   DWARFDebugInfoEntry *m_die = nullptr;

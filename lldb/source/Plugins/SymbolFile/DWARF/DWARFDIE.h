@@ -98,8 +98,9 @@ public:
 
   bool GetDIENamesAndRanges(
       const char *&name, const char *&mangled, DWARFRangeList &ranges,
-      std::optional<int> &decl_file, std::optional<int> &decl_line,
-      std::optional<int> &decl_column, std::optional<int> &call_file,
+      std::optional<std::pair<DWARFUnit *, int>> &decl_file,
+      std::optional<int> &decl_line, std::optional<int> &decl_column,
+      std::optional<std::pair<DWARFUnit *, int>> &call_file,
       std::optional<int> &call_line, std::optional<int> &call_column,
       DWARFExpressionList *frame_base) const;
 

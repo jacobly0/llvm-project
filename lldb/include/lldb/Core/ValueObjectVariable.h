@@ -39,6 +39,7 @@ public:
                                     const lldb::VariableSP &var_sp);
 
   std::optional<uint64_t> GetByteSize() override;
+  std::optional<uint64_t> GetBitSize() override;
 
   ConstString GetTypeName() override;
 

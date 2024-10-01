@@ -37,7 +37,12 @@ class ValueObjectSynthetic : public ValueObject {
 public:
   ~ValueObjectSynthetic() override;
 
-  std::optional<uint64_t> GetByteSize() override;
+  std::optional<uint64_t> GetByteSize() override {
+    return m_parent->GetByteSize();
+  }
+  std::optional<uint64_t> GetBitSize() override {
+    return m_parent->GetBitSize();
+  }
 
   ConstString GetTypeName() override;
 
@@ -49,7 +54,9 @@ public:
 
   llvm::Expected<uint32_t> CalculateNumChildren(uint32_t max) override;
 
-  lldb::ValueType GetValueType() const override;
+  lldb::ValueType GetValueType() const override {
+    return m_parent->GetValueType();
+  }
 
   lldb::ValueObjectSP GetChildAtIndex(uint32_t idx,
                                       bool can_create = true) override;

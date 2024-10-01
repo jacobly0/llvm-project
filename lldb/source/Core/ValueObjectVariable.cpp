@@ -112,13 +112,15 @@ ValueObjectVariable::CalculateNumChildren(uint32_t max) {
 
 std::optional<uint64_t> ValueObjectVariable::GetByteSize() {
   ExecutionContext exe_ctx(GetExecutionContextRef());
-
-  CompilerType type(GetCompilerType());
-
-  if (!type.IsValid())
-    return {};
-
-  return type.GetByteSize(exe_ctx.GetBestExecutionContextScope());
+  if (CompilerType type = GetCompilerType())
+    return type.GetByteSize(exe_ctx.GetBestExecutionContextScope());
+  return std::nullopt;
+}
+std::optional<uint64_t> ValueObjectVariable::GetBitSize() {
+  ExecutionContext exe_ctx(GetExecutionContextRef());
+  if (CompilerType type = GetCompilerType())
+    return type.GetBitSize(exe_ctx.GetBestExecutionContextScope());
+  return std::nullopt;
 }
 
 lldb::ValueType ValueObjectVariable::GetValueType() const {

@@ -524,7 +524,7 @@ StringRef llvm::dwarf::LNExtendedString(unsigned Encoding) {
   switch (Encoding) {
   default:
     return StringRef();
-#define HANDLE_DW_LNE(ID, NAME)                                                \
+#define HANDLE_DW_LNE(ID, NAME, VERSION, VENDOR)                               \
   case DW_LNE_##NAME:                                                          \
     return "DW_LNE_" #NAME;
 #include "llvm/BinaryFormat/Dwarf.def"

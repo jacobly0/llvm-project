@@ -829,8 +829,9 @@ public:
 
   const llvm::fltSemantics &GetFloatTypeSemantics(size_t byte_size) override;
 
-  std::optional<uint64_t> GetByteSize(lldb::opaque_compiler_type_t type,
-                                      ExecutionContextScope *exe_scope) {
+  std::optional<uint64_t>
+  GetByteSize(lldb::opaque_compiler_type_t type,
+              ExecutionContextScope *exe_scope) override {
     if (std::optional<uint64_t> bit_size = GetBitSize(type, exe_scope))
       return (*bit_size + 7) / 8;
     return std::nullopt;
@@ -892,7 +893,7 @@ public:
       lldb::opaque_compiler_type_t type, ExecutionContext *exe_ctx, size_t idx,
       bool transparent_pointers, bool omit_empty_base_classes,
       bool ignore_array_bounds, std::string &child_name,
-      uint32_t &child_byte_size, int32_t &child_byte_offset,
+      uint64_t &child_bit_size, int64_t &child_bit_offset,
       uint32_t &child_bitfield_bit_size, uint32_t &child_bitfield_bit_offset,
       bool &child_is_base_class, bool &child_is_deref_of_parent,
       ValueObject *valobj, uint64_t &language_flags) override;
@@ -915,6 +916,10 @@ public:
                                 bool omit_empty_base_classes,
                                 std::vector<uint32_t> &child_indexes) override;
 
+  ValueObject *GetStringPointer(lldb::opaque_compiler_type_t type,
+                                ValueObject *valobj, uint64_t *length,
+                                char *terminator) override;
+
   CompilerType GetDirectNestedTypeWithName(lldb::opaque_compiler_type_t type,
                                            llvm::StringRef name) override;
 
@@ -932,7 +937,7 @@ public:
   GetIntegralTemplateArgument(lldb::opaque_compiler_type_t type, size_t idx,
                               bool expand_pack) override;
 
-  CompilerType GetTypeForFormatters(void *type) override;
+  CompilerType GetTypeForFormatters(lldb::opaque_compiler_type_t type) override;
 
 #define LLDB_INVALID_DECL_LEVEL UINT32_MAX
   // LLDB_INVALID_DECL_LEVEL is returned by CountDeclLevels if child_decl_ctx

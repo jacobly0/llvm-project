@@ -449,7 +449,7 @@ template <> struct ScalarEnumerationTraits<dwarf::LineNumberOps> {
   }
 };
 
-#define HANDLE_DW_LNE(unused, name)                                            \
+#define HANDLE_DW_LNE(unused, name, unused2, unused3)                          \
   io.enumCase(value, "DW_LNE_" #name, dwarf::DW_LNE_##name);
 
 template <> struct ScalarEnumerationTraits<dwarf::LineNumberExtendedOps> {

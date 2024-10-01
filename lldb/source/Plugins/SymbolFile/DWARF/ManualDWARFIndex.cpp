@@ -270,7 +270,7 @@ void ManualDWARFIndex::IndexUnitImpl(DWARFUnit &unit,
       case DW_AT_location:
       case DW_AT_const_value:
         has_location_or_const_value = true;
-        is_global_or_static_variable = die.IsGlobalOrStaticScopeVariable();
+        is_global_or_static_variable = die.IsGlobalOrStaticScopeVariable(&unit);
 
         break;
 

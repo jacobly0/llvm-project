@@ -298,6 +298,63 @@ public:
     return APSInt(~static_cast<const APInt &>(*this), IsUnsigned);
   }
 
+  APSInt add_ov(const APSInt &RHS, bool &Overflow) const {
+    assert(IsUnsigned == RHS.IsUnsigned && "Signedness mismatch!");
+    return APSInt(IsUnsigned ? uadd_ov(RHS, Overflow) : sadd_ov(RHS, Overflow),
+                  IsUnsigned);
+  }
+  APSInt sub_ov(const APSInt &RHS, bool &Overflow) const {
+    assert(IsUnsigned == RHS.IsUnsigned && "Signedness mismatch!");
+    return APSInt(IsUnsigned ? usub_ov(RHS, Overflow) : ssub_ov(RHS, Overflow),
+                  IsUnsigned);
+  }
+  APSInt div_ov(const APSInt &RHS, bool &Overflow) const {
+    assert(IsUnsigned == RHS.IsUnsigned && "Signedness mismatch!");
+    return APSInt(IsUnsigned ? (Overflow = false, udiv(RHS))
+                             : sdiv_ov(RHS, Overflow),
+                  IsUnsigned);
+  }
+  APSInt floordiv_ov(const APSInt &RHS, bool &Overflow) const {
+    assert(IsUnsigned == RHS.IsUnsigned && "Signedness mismatch!");
+    return APSInt(IsUnsigned ? (Overflow = false, udiv(RHS))
+                             : sfloordiv_ov(RHS, Overflow),
+                  IsUnsigned);
+  }
+  APSInt mul_ov(const APSInt &RHS, bool &Overflow) const {
+    assert(IsUnsigned == RHS.IsUnsigned && "Signedness mismatch!");
+    return APSInt(IsUnsigned ? umul_ov(RHS, Overflow) : smul_ov(RHS, Overflow),
+                  IsUnsigned);
+  }
+  APSInt shl_ov(const APSInt &RHS, bool &Overflow) const {
+    assert(RHS.isNonNegative() && "Negative shift!");
+    return APSInt(IsUnsigned ? ushl_ov(RHS, Overflow) : sshl_ov(RHS, Overflow),
+                  IsUnsigned);
+  }
+  APSInt shl_ov(unsigned Amt, bool &Overflow) const {
+    return APSInt(IsUnsigned ? ushl_ov(Amt, Overflow) : sshl_ov(Amt, Overflow),
+                  IsUnsigned);
+  }
+
+  APSInt add_sat(const APSInt &RHS) const {
+    assert(IsUnsigned == RHS.IsUnsigned && "Signedness mismatch!");
+    return APSInt(IsUnsigned ? uadd_sat(RHS) : sadd_sat(RHS), IsUnsigned);
+  }
+  APSInt sub_sat(const APSInt &RHS) const {
+    assert(IsUnsigned == RHS.IsUnsigned && "Signedness mismatch!");
+    return APSInt(IsUnsigned ? usub_sat(RHS) : ssub_sat(RHS), IsUnsigned);
+  }
+  APSInt mul_sat(const APSInt &RHS) const {
+    assert(IsUnsigned == RHS.IsUnsigned && "Signedness mismatch!");
+    return APSInt(IsUnsigned ? umul_sat(RHS) : smul_sat(RHS), IsUnsigned);
+  }
+  APSInt shl_sat(const APSInt &RHS) const {
+    assert(RHS.isNonNegative() && "Negative shift!");
+    return APSInt(IsUnsigned ? ushl_sat(RHS) : sshl_sat(RHS), IsUnsigned);
+  }
+  APSInt shl_sat(unsigned Amt) const {
+    return APSInt(IsUnsigned ? ushl_sat(Amt) : sshl_sat(Amt), IsUnsigned);
+  }
+
   /// Return the APSInt representing the maximum integer value with the given
   /// bit width and signedness.
   static APSInt getMaxValue(uint32_t numBits, bool Unsigned) {

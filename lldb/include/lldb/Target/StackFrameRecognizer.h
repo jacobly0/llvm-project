@@ -183,6 +183,9 @@ class ValueObjectRecognizerSynthesizedValue : public ValueObject {
   std::optional<uint64_t> GetByteSize() override {
     return m_parent->GetByteSize();
   }
+  std::optional<uint64_t> GetBitSize() override {
+    return m_parent->GetBitSize();
+  }
   lldb::ValueType GetValueType() const override { return m_type; }
   bool UpdateValue() override {
     if (!m_parent->UpdateValueIfNeeded()) return false;

@@ -38,7 +38,7 @@ namespace lldb_private {
 class Value {
 public:
   /// Type that describes Value::m_value.
-  enum class ValueType {
+  enum class ValueType : int8_t {
     Invalid = -1,
     // m_value contains:
     /// A raw scalar value.
@@ -53,7 +53,7 @@ public:
   };
 
   /// Type that describes Value::m_context.
-  enum class ContextType {
+  enum class ContextType : int8_t {
     // m_context contains:
     /// Undefined.
     Invalid = -1,
@@ -87,6 +87,10 @@ public:
   ContextType GetContextType() const { return m_context_type; }
 
   void SetValueType(ValueType value_type) { m_value_type = value_type; }
+
+  uint8_t GetBitOffset() const { return m_bit_offset; }
+
+  void SetBitOffset(uint8_t bit_offset) { m_bit_offset = bit_offset; }
 
   void ClearContext() {
     m_context = nullptr;
@@ -131,6 +135,8 @@ public:
 
   uint64_t GetValueByteSize(Status *error_ptr, ExecutionContext *exe_ctx);
 
+  uint64_t GetValueBitSize(Status *error_ptr, ExecutionContext *exe_ctx);
+
   Status GetValueAsData(ExecutionContext *exe_ctx, DataExtractor &data,
                         Module *module); // Can be nullptr
 
@@ -151,9 +157,10 @@ protected:
   Scalar m_value;
   CompilerType m_compiler_type;
   void *m_context = nullptr;
+  DataBufferHeap m_data_buffer;
   ValueType m_value_type = ValueType::Scalar;
   ContextType m_context_type = ContextType::Invalid;
-  DataBufferHeap m_data_buffer;
+  uint8_t m_bit_offset : 3;
 };
 
 class ValueList {

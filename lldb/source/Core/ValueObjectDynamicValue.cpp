@@ -106,6 +106,14 @@ std::optional<uint64_t> ValueObjectDynamicValue::GetByteSize() {
   } else
     return m_parent->GetByteSize();
 }
+std::optional<uint64_t> ValueObjectDynamicValue::GetBitSize() {
+  const bool success = UpdateValueIfNeeded(false);
+  if (success && m_dynamic_type_info.HasType()) {
+    ExecutionContext exe_ctx(GetExecutionContextRef());
+    return m_value.GetValueBitSize(nullptr, &exe_ctx);
+  } else
+    return m_parent->GetBitSize();
+}
 
 lldb::ValueType ValueObjectDynamicValue::GetValueType() const {
   return m_parent->GetValueType();
