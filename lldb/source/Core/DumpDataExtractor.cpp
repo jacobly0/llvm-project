@@ -17,6 +17,7 @@
 #include "lldb/Target/ABI.h"
 #include "lldb/Target/ExecutionContext.h"
 #include "lldb/Target/ExecutionContextScope.h"
+#include "lldb/Target/Language.h"
 #include "lldb/Target/MemoryRegionInfo.h"
 #include "lldb/Target/MemoryTagManager.h"
 #include "lldb/Target/MemoryTagMap.h"
@@ -95,7 +96,8 @@ static std::optional<llvm::APInt> GetAPInt(const DataExtractor &data,
   return std::nullopt;
 }
 
-static lldb::offset_t DumpAPInt(Stream *s, const DataExtractor &data,
+static lldb::offset_t DumpAPInt(lldb::LanguageType lang, Stream *s,
+                                const DataExtractor &data,
                                 lldb::offset_t offset, lldb::offset_t byte_size,
                                 bool is_signed, unsigned radix) {
   std::optional<llvm::APInt> apint = GetAPInt(data, &offset, byte_size);
@@ -103,10 +105,10 @@ static lldb::offset_t DumpAPInt(Stream *s, const DataExtractor &data,
     std::string apint_str = toString(*apint, radix, is_signed);
     switch (radix) {
     case 2:
-      s->Write("0b", 2);
+      *s << "0b";
       break;
     case 8:
-      s->Write("0", 1);
+      *s << (lang == eLanguageTypeZig ? "0o" : "0");
       break;
     case 10:
       break;
@@ -169,19 +171,28 @@ static lldb::offset_t DumpInstructions(const DataExtractor &DE, Stream *s,
 /// If the character doesn't have a known specific escape sequence (e.g., '\a',
 /// '\n' but not generic escape sequences such as'\x12'), this function will
 /// not modify the stream and return false.
-static bool TryDumpSpecialEscapedChar(Stream &s, const char c) {
+static bool TryDumpSpecialEscapedChar(lldb::LanguageType lang, Stream &s,
+                                      const char c) {
   switch (c) {
   case '\033':
+    if (lang == lldb::eLanguageTypeZig)
+      return false;
     // Common non-standard escape code for 'escape'.
     s.Printf("\\e");
     return true;
   case '\a':
+    if (lang == lldb::eLanguageTypeZig)
+      return false;
     s.Printf("\\a");
     return true;
   case '\b':
+    if (lang == lldb::eLanguageTypeZig)
+      return false;
     s.Printf("\\b");
     return true;
   case '\f':
+    if (lang == lldb::eLanguageTypeZig)
+      return false;
     s.Printf("\\f");
     return true;
   case '\n':
@@ -194,10 +205,29 @@ static bool TryDumpSpecialEscapedChar(Stream &s, const char c) {
     s.Printf("\\t");
     return true;
   case '\v':
+    if (lang == lldb::eLanguageTypeZig)
+      return false;
     s.Printf("\\v");
     return true;
   case '\0':
+    if (lang == lldb::eLanguageTypeZig)
+      return false;
     s.Printf("\\0");
+    return true;
+  case '\\':
+    if (lang != lldb::eLanguageTypeZig)
+      return false;
+    s.Printf("\\\\");
+    return true;
+  case '\'':
+    if (lang != lldb::eLanguageTypeZig)
+      return false;
+    s.Printf("\\\'");
+    return true;
+  case '\"':
+    if (lang != lldb::eLanguageTypeZig)
+      return false;
+    s.Printf("\\\"");
     return true;
   default:
     return false;
@@ -206,37 +236,14 @@ static bool TryDumpSpecialEscapedChar(Stream &s, const char c) {
 
 /// Dump the character to a stream. A character that is not printable will be
 /// represented by its escape sequence.
-static void DumpCharacter(Stream &s, const char c) {
-  if (TryDumpSpecialEscapedChar(s, c))
+static void DumpCharacter(lldb::LanguageType lang, Stream &s, const char c) {
+  if (TryDumpSpecialEscapedChar(lang, s, c))
     return;
   if (llvm::isPrint(c)) {
     s.PutChar(c);
     return;
   }
   s.Printf("\\x%2.2hhx", c);
-}
-
-/// Dump a floating point type.
-template <typename FloatT>
-void DumpFloatingPoint(std::ostringstream &ss, FloatT f) {
-  static_assert(std::is_floating_point<FloatT>::value,
-                "Only floating point types can be dumped.");
-  // NaN and Inf are potentially implementation defined and on Darwin it
-  // seems NaNs are printed without their sign. Manually implement dumping them
-  // here to avoid having to deal with platform differences.
-  if (std::isnan(f)) {
-    if (std::signbit(f))
-      ss << '-';
-    ss << "nan";
-    return;
-  }
-  if (std::isinf(f)) {
-    if (std::signbit(f))
-      ss << '-';
-    ss << "inf";
-    return;
-  }
-  ss << f;
 }
 
 static std::optional<MemoryTagMap>
@@ -318,15 +325,13 @@ static void printMemoryTags(const DataExtractor &DE, Stream *s,
 }
 
 static const llvm::fltSemantics &GetFloatSemantics(const TargetSP &target_sp,
+                                                   lldb::LanguageType lang,
                                                    size_t byte_size) {
-  if (target_sp) {
-    auto type_system_or_err =
-      target_sp->GetScratchTypeSystemForLanguage(eLanguageTypeC);
-    if (!type_system_or_err)
-      llvm::consumeError(type_system_or_err.takeError());
-    else if (auto ts = *type_system_or_err)
-      return ts->GetFloatTypeSemantics(byte_size);
-  }
+  auto type_system_or_err = target_sp->GetScratchTypeSystemForLanguage(lang);
+  if (!type_system_or_err)
+    llvm::consumeError(type_system_or_err.takeError());
+  else if (auto ts = *type_system_or_err)
+    return ts->GetFloatTypeSemantics(byte_size);
   // No target, just make a reasonable guess
   switch(byte_size) {
     case 2:
@@ -339,6 +344,51 @@ static const llvm::fltSemantics &GetFloatSemantics(const TargetSP &target_sp,
   return llvm::APFloat::Bogus();
 }
 
+static bool DumpFloat(const DataExtractor &DE, Stream *s, offset_t &offset,
+                      size_t item_byte_size, ExecutionContextScope *exe_scope,
+                      const llvm::fltSemantics *&flt_semantics) {
+  TargetSP target_sp;
+  if (exe_scope) {
+    target_sp = exe_scope->CalculateTarget();
+    if (!flt_semantics) {
+      SourceLanguage lang;
+      if (StackFrameSP frame_sp = exe_scope->CalculateStackFrame())
+        lang = frame_sp->GuessLanguage();
+      else if (target_sp)
+        lang = target_sp->GetLanguage();
+      flt_semantics =
+          &GetFloatSemantics(target_sp, lang.AsLanguageType(), item_byte_size);
+    }
+  }
+
+  std::optional<unsigned> format_max_padding;
+  if (target_sp)
+    format_max_padding = target_sp->GetMaxZeroPaddingInFloatFormat();
+
+  // Show full precision when printing float values
+  const unsigned format_precision = 0;
+
+  // Recalculate the byte size in case of a difference. This is possible
+  // when item_byte_size is 16 (128-bit), because you could get back the
+  // x87DoubleExtended semantics which has a byte size of 10 (80-bit).
+  const size_t semantics_byte_size =
+      (llvm::APFloat::getSizeInBits(*flt_semantics) + 7) / 8;
+  if (std::optional<llvm::APInt> apint =
+          GetAPInt(DE, &offset, semantics_byte_size)) {
+    llvm::APFloat apfloat(*flt_semantics, *apint);
+    llvm::SmallVector<char, 256> sv;
+    if (format_max_padding)
+      apfloat.toString(sv, format_precision, *format_max_padding);
+    else
+      apfloat.toString(sv, format_precision);
+    s->AsRawOstream() << sv;
+    return true;
+  }
+  s->Format("error: unsupported byte size ({0}) for float format",
+            item_byte_size);
+  return false;
+}
+
 lldb::offset_t lldb_private::DumpDataExtractor(
     const DataExtractor &DE, Stream *s, offset_t start_offset,
     lldb::Format item_format, size_t item_byte_size, size_t item_count,
@@ -347,7 +397,8 @@ lldb::offset_t lldb_private::DumpDataExtractor(
                               // non-zero, the value is a bitfield
     uint32_t item_bit_offset, // If "item_bit_size" is non-zero, this is the
                               // shift amount to apply to a bitfield
-    ExecutionContextScope *exe_scope, bool show_memory_tags) {
+    ExecutionContextScope *exe_scope, bool show_memory_tags,
+    const llvm::fltSemantics *flt_semantics) {
   if (s == nullptr)
     return start_offset;
 
@@ -443,9 +494,18 @@ lldb::offset_t lldb_private::DumpDataExtractor(
         else if (item_byte_size > 0 && item_byte_size <= 8)
           s->Printf("0b%s", binary_value.c_str() + 64 - item_byte_size * 8);
       } else {
+        SourceLanguage lang;
+        if (exe_scope) {
+          if (StackFrameSP frame_sp = exe_scope->CalculateStackFrame())
+            lang = frame_sp->GuessLanguage();
+          else if (TargetSP target_sp = exe_scope->CalculateTarget())
+            lang = target_sp->GetLanguage();
+        }
+
         const bool is_signed = false;
         const unsigned radix = 2;
-        offset = DumpAPInt(s, DE, offset, item_byte_size, is_signed, radix);
+        offset = DumpAPInt(lang.AsLanguageType(), s, DE, offset, item_byte_size,
+                           is_signed, radix);
       }
       break;
 
@@ -471,6 +531,14 @@ lldb::offset_t lldb_private::DumpDataExtractor(
         return offset;
       }
 
+      SourceLanguage lang;
+      if (exe_scope) {
+        if (StackFrameSP frame_sp = exe_scope->CalculateStackFrame())
+          lang = frame_sp->GuessLanguage();
+        else if (TargetSP target_sp = exe_scope->CalculateTarget())
+          lang = target_sp->GetLanguage();
+      }
+
       // If we are only printing one character surround it with single quotes
       if (item_count == 1 && item_format == eFormatChar)
         s->PutChar('\'');
@@ -478,9 +546,9 @@ lldb::offset_t lldb_private::DumpDataExtractor(
       const uint64_t ch = DE.GetMaxU64Bitfield(&offset, item_byte_size,
                                                item_bit_size, item_bit_offset);
       if (llvm::isPrint(ch))
-        s->Printf("%c", (char)ch);
+        DumpCharacter(lang.AsLanguageType(), *s, ch);
       else if (item_format != eFormatCharPrintable) {
-        if (!TryDumpSpecialEscapedChar(*s, ch)) {
+        if (!TryDumpSpecialEscapedChar(lang.AsLanguageType(), *s, ch)) {
           if (item_byte_size == 1)
             s->Printf("\\x%2.2x", (uint8_t)ch);
           else
@@ -503,9 +571,18 @@ lldb::offset_t lldb_private::DumpDataExtractor(
                   DE.GetMaxS64Bitfield(&offset, item_byte_size, item_bit_size,
                                        item_bit_offset));
       else {
+        SourceLanguage lang;
+        if (exe_scope) {
+          if (StackFrameSP frame_sp = exe_scope->CalculateStackFrame())
+            lang = frame_sp->GuessLanguage();
+          else if (TargetSP target_sp = exe_scope->CalculateTarget())
+            lang = target_sp->GetLanguage();
+        }
+
         const bool is_signed = true;
         const unsigned radix = 10;
-        offset = DumpAPInt(s, DE, offset, item_byte_size, is_signed, radix);
+        offset = DumpAPInt(lang.AsLanguageType(), s, DE, offset, item_byte_size,
+                           is_signed, radix);
       }
       break;
 
@@ -515,49 +592,82 @@ lldb::offset_t lldb_private::DumpDataExtractor(
                   DE.GetMaxU64Bitfield(&offset, item_byte_size, item_bit_size,
                                        item_bit_offset));
       else {
+        SourceLanguage lang;
+        if (exe_scope) {
+          if (StackFrameSP frame_sp = exe_scope->CalculateStackFrame())
+            lang = frame_sp->GuessLanguage();
+          else if (TargetSP target_sp = exe_scope->CalculateTarget())
+            lang = target_sp->GetLanguage();
+        }
+
         const bool is_signed = false;
         const unsigned radix = 10;
-        offset = DumpAPInt(s, DE, offset, item_byte_size, is_signed, radix);
+        offset = DumpAPInt(lang.AsLanguageType(), s, DE, offset, item_byte_size,
+                           is_signed, radix);
       }
       break;
 
-    case eFormatOctal:
-      if (item_byte_size <= 8)
-        s->Printf("0%" PRIo64,
+    case eFormatOctal: {
+      SourceLanguage lang;
+      if (exe_scope) {
+        if (StackFrameSP frame_sp = exe_scope->CalculateStackFrame())
+          lang = frame_sp->GuessLanguage();
+        else if (TargetSP target_sp = exe_scope->CalculateTarget())
+          lang = target_sp->GetLanguage();
+      }
+
+      if (item_byte_size <= 8) {
+        s->Printf("%s%" PRIo64,
+                  lang.AsLanguageType() == eLanguageTypeZig ? "0o" : "0",
                   DE.GetMaxS64Bitfield(&offset, item_byte_size, item_bit_size,
                                        item_bit_offset));
-      else {
+      } else {
         const bool is_signed = false;
         const unsigned radix = 8;
-        offset = DumpAPInt(s, DE, offset, item_byte_size, is_signed, radix);
+        offset = DumpAPInt(lang.AsLanguageType(), s, DE, offset, item_byte_size,
+                           is_signed, radix);
       }
-      break;
+    } break;
 
     case eFormatOSType: {
+      SourceLanguage lang;
+      if (exe_scope) {
+        if (StackFrameSP frame_sp = exe_scope->CalculateStackFrame())
+          lang = frame_sp->GuessLanguage();
+        else if (TargetSP target_sp = exe_scope->CalculateTarget())
+          lang = target_sp->GetLanguage();
+      }
+
       uint64_t uval64 = DE.GetMaxU64Bitfield(&offset, item_byte_size,
                                              item_bit_size, item_bit_offset);
       s->PutChar('\'');
       for (uint32_t i = 0; i < item_byte_size; ++i) {
         uint8_t ch = (uint8_t)(uval64 >> ((item_byte_size - i - 1) * 8));
-        DumpCharacter(*s, ch);
+        DumpCharacter(lang.AsLanguageType(), *s, ch);
       }
       s->PutChar('\'');
     } break;
 
     case eFormatCString: {
-      const char *cstr = DE.GetCStr(&offset);
+      SourceLanguage lang;
+      if (exe_scope) {
+        if (StackFrameSP frame_sp = exe_scope->CalculateStackFrame())
+          lang = frame_sp->GuessLanguage();
+        else if (TargetSP target_sp = exe_scope->CalculateTarget())
+          lang = target_sp->GetLanguage();
+      }
 
-      if (!cstr) {
-        s->Printf("NULL");
+      llvm::ArrayRef<uint8_t> data = DE.GetData();
+      if (data.empty()) {
+        if (Language *lang_plugin = Language::FindPlugin(lang.AsLanguageType()))
+          *s << lang_plugin->GetNilReferenceSummaryString();
+        else
+          *s << "NULL";
         offset = LLDB_INVALID_OFFSET;
       } else {
         s->PutChar('\"');
-
-        while (const char c = *cstr) {
-          DumpCharacter(*s, c);
-          ++cstr;
-        }
-
+        for (uint8_t c : data.drop_back(1))
+          DumpCharacter(lang.AsLanguageType(), *s, c);
         s->PutChar('\"');
       }
     } break;
@@ -586,29 +696,14 @@ lldb::offset_t lldb_private::DumpDataExtractor(
     } break;
 
     case eFormatComplex:
-      if (sizeof(float) * 2 == item_byte_size) {
-        float f32_1 = DE.GetFloat(&offset);
-        float f32_2 = DE.GetFloat(&offset);
-
-        s->Printf("%g + %gi", f32_1, f32_2);
-        break;
-      } else if (sizeof(double) * 2 == item_byte_size) {
-        double d64_1 = DE.GetDouble(&offset);
-        double d64_2 = DE.GetDouble(&offset);
-
-        s->Printf("%lg + %lgi", d64_1, d64_2);
-        break;
-      } else if (sizeof(long double) * 2 == item_byte_size) {
-        long double ld64_1 = DE.GetLongDouble(&offset);
-        long double ld64_2 = DE.GetLongDouble(&offset);
-        s->Printf("%Lg + %Lgi", ld64_1, ld64_2);
-        break;
-      } else {
-        s->Printf("error: unsupported byte size (%" PRIu64
-                  ") for complex float format",
-                  (uint64_t)item_byte_size);
+      if (!DumpFloat(DE, s, offset, item_byte_size / 2, exe_scope,
+                     flt_semantics))
         return offset;
-      }
+      s->PutCString(" + ");
+      if (!DumpFloat(DE, s, offset, item_byte_size / 2, exe_scope,
+                     flt_semantics))
+        return offset;
+      s->PutChar('i');
       break;
 
     default:
@@ -653,42 +748,10 @@ lldb::offset_t lldb_private::DumpDataExtractor(
       }
     } break;
 
-    case eFormatFloat: {
-      TargetSP target_sp;
-      if (exe_scope)
-        target_sp = exe_scope->CalculateTarget();
-
-      std::optional<unsigned> format_max_padding;
-      if (target_sp)
-        format_max_padding = target_sp->GetMaxZeroPaddingInFloatFormat();
-
-      // Show full precision when printing float values
-      const unsigned format_precision = 0;
-
-      const llvm::fltSemantics &semantics =
-          GetFloatSemantics(target_sp, item_byte_size);
-
-      // Recalculate the byte size in case of a difference. This is possible
-      // when item_byte_size is 16 (128-bit), because you could get back the
-      // x87DoubleExtended semantics which has a byte size of 10 (80-bit).
-      const size_t semantics_byte_size =
-          (llvm::APFloat::getSizeInBits(semantics) + 7) / 8;
-      std::optional<llvm::APInt> apint =
-          GetAPInt(DE, &offset, semantics_byte_size);
-      if (apint) {
-        llvm::APFloat apfloat(semantics, *apint);
-        llvm::SmallVector<char, 256> sv;
-        if (format_max_padding)
-          apfloat.toString(sv, format_precision, *format_max_padding);
-        else
-          apfloat.toString(sv, format_precision);
-        s->AsRawOstream() << sv;
-      } else {
-        s->Format("error: unsupported byte size ({0}) for float format",
-                  item_byte_size);
+    case eFormatFloat:
+      if (!DumpFloat(DE, s, offset, item_byte_size, exe_scope, flt_semantics))
         return offset;
-      }
-    } break;
+      break;
 
     case eFormatUnicode16:
       s->Printf("U+%4.4x", DE.GetU16(&offset));
@@ -842,7 +905,8 @@ lldb::offset_t lldb_private::DumpDataExtractor(
       s->PutChar('{');
       offset =
           DumpDataExtractor(DE, s, offset, eFormatFloat, 2, item_byte_size / 2,
-                            item_byte_size / 2, LLDB_INVALID_ADDRESS, 0, 0);
+                            item_byte_size / 2, LLDB_INVALID_ADDRESS, 0, 0,
+                            exe_scope, false, flt_semantics);
       s->PutChar('}');
       break;
 
@@ -850,7 +914,8 @@ lldb::offset_t lldb_private::DumpDataExtractor(
       s->PutChar('{');
       offset =
           DumpDataExtractor(DE, s, offset, eFormatFloat, 4, item_byte_size / 4,
-                            item_byte_size / 4, LLDB_INVALID_ADDRESS, 0, 0);
+                            item_byte_size / 4, LLDB_INVALID_ADDRESS, 0, 0,
+                            exe_scope, false, flt_semantics);
       s->PutChar('}');
       break;
 
@@ -858,7 +923,8 @@ lldb::offset_t lldb_private::DumpDataExtractor(
       s->PutChar('{');
       offset =
           DumpDataExtractor(DE, s, offset, eFormatFloat, 8, item_byte_size / 8,
-                            item_byte_size / 8, LLDB_INVALID_ADDRESS, 0, 0);
+                            item_byte_size / 8, LLDB_INVALID_ADDRESS, 0, 0,
+                            exe_scope, false, flt_semantics);
       s->PutChar('}');
       break;
 

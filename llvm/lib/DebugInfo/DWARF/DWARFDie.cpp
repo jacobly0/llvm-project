@@ -351,6 +351,10 @@ std::optional<uint64_t> DWARFDie::getLocBaseAttribute() const {
   return toSectionOffset(find(DW_AT_loclists_base));
 }
 
+std::optional<object::SectionedAddress> DWARFDie::getLowPC() const {
+  return toSectionedAddress(find(DW_AT_low_pc));
+}
+
 std::optional<uint64_t> DWARFDie::getHighPC(uint64_t LowPC) const {
   uint64_t Tombstone = dwarf::computeTombstoneAddress(U->getAddressByteSize());
   if (LowPC == Tombstone)
@@ -370,15 +374,13 @@ std::optional<uint64_t> DWARFDie::getHighPC(uint64_t LowPC) const {
 
 bool DWARFDie::getLowAndHighPC(uint64_t &LowPC, uint64_t &HighPC,
                                uint64_t &SectionIndex) const {
-  auto F = find(DW_AT_low_pc);
-  auto LowPcAddr = toSectionedAddress(F);
-  if (!LowPcAddr)
-    return false;
-  if (auto HighPcAddr = getHighPC(LowPcAddr->Address)) {
-    LowPC = LowPcAddr->Address;
-    HighPC = *HighPcAddr;
-    SectionIndex = LowPcAddr->SectionIndex;
-    return true;
+  if (auto LowPcAddr = getLowPC()) {
+    if (auto HighPcAddr = getHighPC(LowPcAddr->Address)) {
+      LowPC = LowPcAddr->Address;
+      HighPC = *HighPcAddr;
+      SectionIndex = LowPcAddr->SectionIndex;
+      return true;
+    }
   }
   return false;
 }
@@ -486,8 +488,27 @@ const char *DWARFDie::getLinkageName() const {
                          nullptr);
 }
 
-uint64_t DWARFDie::getDeclLine() const {
-  return toUnsigned(findRecursively(DW_AT_decl_line), 0);
+std::optional<uint64_t> DWARFDie::getDeclLine() const {
+  return toUnsigned(findRecursively(DW_AT_decl_line));
+}
+
+std::optional<uint64_t> DWARFDie::getDeclColumn() const {
+  return toUnsigned(findRecursively(DW_AT_decl_column));
+}
+
+std::optional<uint64_t> DWARFDie::getDeclFileIndex() const {
+  SmallSet<DWARFDie, 3> Seen;
+  DWARFDie Die = *this;
+  while (Die && Seen.insert(Die).second) {
+    if (auto FormValue = Die.findRecursively(DW_AT_decl_file))
+      return toUnsigned(FormValue);
+    if (DWARFDie ParentDie =
+            Die.getAttributeValueAsReferencedDie(DW_AT_ZIG_parent))
+      Die = ParentDie;
+    else
+      Die = Die.getParent();
+  }
+  return std::nullopt;
 }
 
 std::string

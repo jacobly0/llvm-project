@@ -288,7 +288,7 @@ void ManualDWARFIndex::IndexUnitImpl(DWARFUnit &unit,
       case DW_AT_location:
       case DW_AT_const_value:
         has_location_or_const_value = true;
-        is_global_or_static_variable = die.IsGlobalOrStaticScopeVariable();
+        is_global_or_static_variable = die.IsGlobalOrStaticScopeVariable(&unit);
 
         break;
 
@@ -386,7 +386,7 @@ void ManualDWARFIndex::IndexUnitImpl(DWARFUnit &unit,
       // `DW_AT_declaration`, but otherwise follow the same rules as
       // `DW_TAG_variable`.
       bool parent_is_class_type = false;
-      if (auto parent = die.GetParent())
+      if (auto parent = die.GetParent(&unit))
         parent_is_class_type = DWARFDIE(&unit, parent).IsStructUnionOrClass();
       if (!parent_is_class_type || !is_declaration)
         break;

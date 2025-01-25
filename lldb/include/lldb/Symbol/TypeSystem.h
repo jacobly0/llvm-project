@@ -313,6 +313,10 @@ public:
   virtual const llvm::fltSemantics &GetFloatTypeSemantics(size_t byte_size) = 0;
 
   virtual std::optional<uint64_t>
+  GetByteSize(lldb::opaque_compiler_type_t type,
+              ExecutionContextScope *exe_scope) = 0;
+
+  virtual std::optional<uint64_t>
   GetBitSize(lldb::opaque_compiler_type_t type,
              ExecutionContextScope *exe_scope) = 0;
 
@@ -368,7 +372,7 @@ public:
       lldb::opaque_compiler_type_t type, ExecutionContext *exe_ctx, size_t idx,
       bool transparent_pointers, bool omit_empty_base_classes,
       bool ignore_array_bounds, std::string &child_name,
-      uint32_t &child_byte_size, int32_t &child_byte_offset,
+      uint64_t &child_bit_size, int64_t &child_bit_offset,
       uint32_t &child_bitfield_bit_size, uint32_t &child_bitfield_bit_offset,
       bool &child_is_base_class, bool &child_is_deref_of_parent,
       ValueObject *valobj, uint64_t &language_flags) = 0;
@@ -389,10 +393,20 @@ public:
       lldb::opaque_compiler_type_t type, llvm::StringRef name,
       bool omit_empty_base_classes, std::vector<uint32_t> &child_indexes) = 0;
 
+  virtual ValueObject *GetStringPointer(lldb::opaque_compiler_type_t type,
+                                        ValueObject *valobj, uint64_t *length,
+                                        char *terminator) = 0;
+
   virtual CompilerType
   GetDirectNestedTypeWithName(lldb::opaque_compiler_type_t type,
                               llvm::StringRef name) {
     return CompilerType();
+  }
+
+  virtual lldb::ValueObjectSP
+  CreateValueFromType(lldb::opaque_compiler_type_t type,
+                      ExecutionContextScope *exe_scope) {
+    return lldb::ValueObjectSP();
   }
 
   virtual bool IsTemplateType(lldb::opaque_compiler_type_t type);
@@ -520,9 +534,10 @@ public:
     return nullptr;
   }
 
-  virtual CompilerType GetTypeForFormatters(void *type);
+  virtual CompilerType GetTypeForFormatters(lldb::opaque_compiler_type_t type);
 
-  virtual LazyBool ShouldPrintAsOneLiner(void *type, ValueObject *valobj);
+  virtual LazyBool ShouldPrintAsOneLiner(lldb::opaque_compiler_type_t type,
+                                         ValueObject *valobj);
 
   // Type systems can have types that are placeholder types, which are meant to
   // indicate the presence of a type, but offer no actual information about
@@ -536,7 +551,8 @@ public:
   // type-specific way For instance, LLDB will currently not cache any
   // formatters that are discovered on such a type as attributable to the
   // meaningless type itself, instead preferring to use the dynamic type
-  virtual bool IsMeaninglessWithoutDynamicResolution(void *type);
+  virtual bool
+  IsMeaninglessWithoutDynamicResolution(lldb::opaque_compiler_type_t type);
 
   virtual std::optional<llvm::json::Value> ReportStatistics();
 

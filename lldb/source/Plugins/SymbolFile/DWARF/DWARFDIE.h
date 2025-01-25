@@ -115,10 +115,12 @@ public:
 
   bool GetDIENamesAndRanges(
       const char *&name, const char *&mangled,
-      llvm::DWARFAddressRangesVector &ranges, std::optional<int> &decl_file,
+      llvm::DWARFAddressRangesVector &ranges,
+      std::optional<std::pair<DWARFUnit *, size_t>> &decl_file,
       std::optional<int> &decl_line, std::optional<int> &decl_column,
-      std::optional<int> &call_file, std::optional<int> &call_line,
-      std::optional<int> &call_column, DWARFExpressionList *frame_base) const;
+      std::optional<std::pair<DWARFUnit *, size_t>> &call_file,
+      std::optional<int> &call_line, std::optional<int> &call_column,
+      DWARFExpressionList *frame_base) const;
 
   // The following methods use LLVM naming convension in order to be are used by
   // LLVM libraries.

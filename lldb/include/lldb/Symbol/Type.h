@@ -481,6 +481,7 @@ public:
   ConstString GetBaseName();
 
   std::optional<uint64_t> GetByteSize(ExecutionContextScope *exe_scope);
+  std::optional<uint64_t> GetBitSize(ExecutionContextScope *exe_scope);
 
   llvm::Expected<uint32_t> GetNumChildren(bool omit_empty_base_classes);
 
@@ -581,8 +582,10 @@ protected:
   Type *m_encoding_type = nullptr;
   lldb::user_id_t m_encoding_uid = LLDB_INVALID_UID;
   EncodingDataType m_encoding_uid_type = eEncodingInvalid;
-  uint64_t m_byte_size : 63;
+  uint64_t m_byte_size : 61;
   uint64_t m_byte_size_has_value : 1;
+  uint64_t m_bit_size_has_value : 1;
+  uint64_t m_bit_size;
   Declaration m_decl;
   CompilerType m_compiler_type;
   ResolveState m_compiler_type_resolve_state = ResolveState::Unresolved;
@@ -600,9 +603,10 @@ private:
   friend class lldb_private::SymbolFileCommon;
 
   Type(lldb::user_id_t uid, SymbolFile *symbol_file, ConstString name,
-       std::optional<uint64_t> byte_size, SymbolContextScope *context,
-       lldb::user_id_t encoding_uid, EncodingDataType encoding_uid_type,
-       const Declaration &decl, const CompilerType &compiler_qual_type,
+       std::optional<uint64_t> byte_size, std::optional<uint64_t> bit_size,
+       SymbolContextScope *context, lldb::user_id_t encoding_uid,
+       EncodingDataType encoding_uid_type, const Declaration &decl,
+       const CompilerType &compiler_qual_type,
        ResolveState compiler_type_resolve_state, uint32_t opaque_payload = 0);
 
   // This makes an invalid type.  Used for functions that return a Type when

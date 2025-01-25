@@ -910,7 +910,8 @@ private:
     const bool omit_empty_base_classes = true;
     const bool ignore_array_bounds = false;
     // GetChild output params
-    int32_t child_offs;
+    uint64_t child_bit_size;
+    int64_t child_bit_offset;
     uint32_t child_bitfield_bit_size;
     uint32_t child_bitfield_bit_offset;
     bool child_is_base_class;
@@ -920,11 +921,13 @@ private:
     ExecutionContext exe_ctx;
     m_thread.CalculateExecutionContext(exe_ctx);
 
-    return m_type.GetChildCompilerTypeAtIndex(
+    auto child_type = m_type.GetChildCompilerTypeAtIndex(
         &exe_ctx, i, transparent_pointers, omit_empty_base_classes,
-        ignore_array_bounds, name, size, child_offs, child_bitfield_bit_size,
-        child_bitfield_bit_offset, child_is_base_class,
+        ignore_array_bounds, name, child_bit_size, child_bit_offset,
+        child_bitfield_bit_size, child_bitfield_bit_offset, child_is_base_class,
         child_is_deref_of_parent, valobj, language_flags);
+    size = child_bit_size / 8;
+    return child_type;
   }
 };
 

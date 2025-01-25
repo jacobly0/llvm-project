@@ -30,6 +30,8 @@
 #include "lldb/lldb-forward.h"
 #include "lldb/lldb-types.h"
 
+#include "llvm/Support/MathExtras.h"
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -39,21 +41,22 @@
 using namespace lldb;
 using namespace lldb_private;
 
-Value::Value() : m_value(), m_compiler_type(), m_data_buffer() {}
+Value::Value()
+    : m_value(), m_compiler_type(), m_data_buffer(), m_bit_offset() {}
 
 Value::Value(const Scalar &scalar)
-    : m_value(scalar), m_compiler_type(), m_data_buffer() {}
+    : m_value(scalar), m_compiler_type(), m_data_buffer(), m_bit_offset() {}
 
 Value::Value(const void *bytes, int len)
-    : m_value(), m_compiler_type(), m_value_type(ValueType::HostAddress),
-      m_data_buffer() {
+    : m_value(), m_compiler_type(), m_data_buffer(),
+      m_value_type(ValueType::HostAddress), m_bit_offset() {
   SetBytes(bytes, len);
 }
 
 Value::Value(const Value &v)
     : m_value(v.m_value), m_compiler_type(v.m_compiler_type),
-      m_context(v.m_context), m_value_type(v.m_value_type),
-      m_context_type(v.m_context_type), m_data_buffer() {
+      m_context(v.m_context), m_data_buffer(), m_value_type(v.m_value_type),
+      m_context_type(v.m_context_type), m_bit_offset(v.m_bit_offset) {
   const uintptr_t rhs_value =
       (uintptr_t)v.m_value.ULongLong(LLDB_INVALID_ADDRESS);
   if ((rhs_value != 0) &&
@@ -223,10 +226,40 @@ uint64_t Value::GetValueByteSize(Status *error_ptr, ExecutionContext *exe_ctx) {
   case ContextType::Variable: // Variable *
   {
     auto *scope = exe_ctx ? exe_ctx->GetBestExecutionContextScope() : nullptr;
-    if (std::optional<uint64_t> size = GetCompilerType().GetByteSize(scope)) {
+    if (std::optional<uint64_t> byte_size =
+            GetCompilerType().GetByteSize(scope)) {
       if (error_ptr)
         error_ptr->Clear();
-      return *size;
+      return *byte_size;
+    }
+    break;
+  }
+  }
+  if (error_ptr && error_ptr->Success())
+    *error_ptr = Status::FromErrorString("Unable to determine byte size.");
+  return 0;
+}
+
+uint64_t Value::GetValueBitSize(Status *error_ptr, ExecutionContext *exe_ctx) {
+  switch (m_context_type) {
+  case ContextType::RegisterInfo: // RegisterInfo *
+    if (GetRegisterInfo()) {
+      if (error_ptr)
+        error_ptr->Clear();
+      return GetRegisterInfo()->byte_size * 8;
+    }
+    break;
+
+  case ContextType::Invalid:
+  case ContextType::LLDBType: // Type *
+  case ContextType::Variable: // Variable *
+  {
+    auto *scope = exe_ctx ? exe_ctx->GetBestExecutionContextScope() : nullptr;
+    if (std::optional<uint64_t> bit_size =
+            GetCompilerType().GetBitSize(scope)) {
+      if (error_ptr)
+        error_ptr->Clear();
+      return *bit_size;
     }
     break;
   }
@@ -321,10 +354,10 @@ Status Value::GetValueAsData(ExecutionContext *exe_ctx, DataExtractor &data,
   AddressType address_type = eAddressTypeFile;
   Address file_so_addr;
   const CompilerType &ast_type = GetCompilerType();
-  std::optional<uint64_t> type_size = ast_type.GetByteSize(
+  std::optional<uint64_t> type_bit_size = ast_type.GetBitSize(
       exe_ctx ? exe_ctx->GetBestExecutionContextScope() : nullptr);
   // Nothing to be done for a zero-sized type.
-  if (type_size && *type_size == 0)
+  if (type_bit_size && *type_bit_size == 0)
     return error;
 
   switch (m_value_type) {
@@ -340,8 +373,8 @@ Status Value::GetValueAsData(ExecutionContext *exe_ctx, DataExtractor &data,
 
     uint32_t limit_byte_size = UINT32_MAX;
 
-    if (type_size)
-      limit_byte_size = *type_size;
+    if (type_bit_size)
+      limit_byte_size = llvm::divideCeil(*type_bit_size, 8);
 
     if (limit_byte_size <= m_value.GetByteSize()) {
       if (m_value.GetData(data, limit_byte_size))
@@ -510,7 +543,12 @@ Status Value::GetValueAsData(ExecutionContext *exe_ctx, DataExtractor &data,
   }
 
   // If we got here, we need to read the value from memory.
-  size_t byte_size = GetValueByteSize(&error, exe_ctx);
+  size_t byte_size;
+  if (m_bit_offset)
+    byte_size =
+        llvm::divideCeil(m_bit_offset + GetValueBitSize(&error, exe_ctx), 8);
+  else
+    byte_size = GetValueByteSize(&error, exe_ctx);
 
   // Bail if we encountered any errors getting the byte size.
   if (error.Fail())
@@ -536,7 +574,7 @@ Status Value::GetValueAsData(ExecutionContext *exe_ctx, DataExtractor &data,
             Status::FromErrorString("trying to read from host address of 0.");
         return error;
       }
-      memcpy(dst, reinterpret_cast<uint8_t *>(address), byte_size);
+      memcpy(dst, reinterpret_cast<const uint8_t *>(address), byte_size);
     } else if ((address_type == eAddressTypeLoad) ||
                (address_type == eAddressTypeFile)) {
       if (file_so_addr.IsValid()) {
@@ -596,9 +634,13 @@ Scalar &Value::ResolveValue(ExecutionContext *exe_ctx, Module *module) {
       Status error(GetValueAsData(exe_ctx, data, module));
       if (error.Success()) {
         Scalar scalar;
-        if (compiler_type.GetValueAsScalar(
-                data, 0, data.GetByteSize(), scalar,
-                exe_ctx ? exe_ctx->GetBestExecutionContextScope() : nullptr)) {
+        ExecutionContextScope *exe_scope =
+            exe_ctx ? exe_ctx->GetBestExecutionContextScope() : nullptr;
+        if (compiler_type.GetValueAsScalar(data, 0, data.GetByteSize(), scalar,
+                                           exe_scope)) {
+          if (m_bit_offset)
+            if (auto bit_size = compiler_type.GetBitSize(exe_scope))
+              scalar.ExtractBitfield(*bit_size, m_bit_offset);
           m_value = scalar;
           m_value_type = ValueType::Scalar;
         } else {

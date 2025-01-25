@@ -149,6 +149,12 @@ std::optional<uint64_t> ValueObjectMemory::GetByteSize() {
     return m_type_sp->GetByteSize(exe_ctx.GetBestExecutionContextScope());
   return m_compiler_type.GetByteSize(exe_ctx.GetBestExecutionContextScope());
 }
+std::optional<uint64_t> ValueObjectMemory::GetBitSize() {
+  ExecutionContext exe_ctx(GetExecutionContextRef());
+  if (m_type_sp)
+    return m_type_sp->GetBitSize(exe_ctx.GetBestExecutionContextScope());
+  return m_compiler_type.GetBitSize(exe_ctx.GetBestExecutionContextScope());
+}
 
 lldb::ValueType ValueObjectMemory::GetValueType() const {
   // RETHINK: Should this be inherited from somewhere?

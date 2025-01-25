@@ -596,9 +596,11 @@ protected:
           {
             Status error;
             uint32_t expr_path_options =
-                StackFrame::eExpressionPathOptionCheckPtrVsMember |
                 StackFrame::eExpressionPathOptionsAllowDirectIVarAccess |
                 StackFrame::eExpressionPathOptionsInspectAnonymousUnions;
+            if (frame->GuessLanguage().AsLanguageType() != eLanguageTypeZig)
+              expr_path_options |=
+                  StackFrame::eExpressionPathOptionCheckPtrVsMember;
             lldb::VariableSP var_sp;
             valobj_sp = frame->GetValueForVariableExpressionPath(
                 entry.ref(), m_varobj_options.use_dynamic, expr_path_options,

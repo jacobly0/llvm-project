@@ -2081,14 +2081,15 @@ size_t Target::ReadMemory(const Address &addr, void *dst, size_t dst_len,
 }
 
 size_t Target::ReadCStringFromMemory(const Address &addr, std::string &out_str,
-                                     Status &error, bool force_live_memory) {
+                                     Status &error, bool force_live_memory,
+                                     char terminator) {
   char buf[256];
   out_str.clear();
   addr_t curr_addr = addr.GetLoadAddress(this);
   Address address(addr);
   while (true) {
     size_t length = ReadCStringFromMemory(address, buf, sizeof(buf), error,
-                                          force_live_memory);
+                                          force_live_memory, terminator);
     if (length == 0)
       break;
     out_str.append(buf, length);
@@ -2105,7 +2106,7 @@ size_t Target::ReadCStringFromMemory(const Address &addr, std::string &out_str,
 
 size_t Target::ReadCStringFromMemory(const Address &addr, char *dst,
                                      size_t dst_max_len, Status &result_error,
-                                     bool force_live_memory) {
+                                     bool force_live_memory, char terminator) {
   size_t total_cstr_len = 0;
   if (dst && dst_max_len) {
     result_error.Clear();
@@ -2136,7 +2137,10 @@ size_t Target::ReadCStringFromMemory(const Address &addr, char *dst,
         dst[total_cstr_len] = '\0';
         break;
       }
-      const size_t len = strlen(curr_dst);
+      size_t len = bytes_read;
+      if (char *end = static_cast<char *>(
+              memchr(curr_dst, (unsigned char)terminator, bytes_read)))
+        len = end - curr_dst;
 
       total_cstr_len += len;
 

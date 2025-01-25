@@ -586,12 +586,12 @@ public:
                         const CompilerType &compiler_qual_type,
                         Type::ResolveState compiler_type_resolve_state,
                         uint32_t opaque_payload = 0) override {
-     lldb::TypeSP type_sp (new Type(
-         uid, this, name, byte_size, context, encoding_uid,
-         encoding_uid_type, decl, compiler_qual_type,
-         compiler_type_resolve_state, opaque_payload));
-     m_type_list.Insert(type_sp);
-     return type_sp;
+    lldb::TypeSP type_sp(new Type(uid, this, name, byte_size, std::nullopt,
+                                  context, encoding_uid, encoding_uid_type,
+                                  decl, compiler_qual_type,
+                                  compiler_type_resolve_state, opaque_payload));
+    m_type_list.Insert(type_sp);
+    return type_sp;
   }
 
   lldb::TypeSP CopyType(const lldb::TypeSP &other_type) override {

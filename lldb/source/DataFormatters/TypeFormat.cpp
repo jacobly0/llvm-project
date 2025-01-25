@@ -42,13 +42,16 @@ bool TypeFormatImpl_Format::FormatObject(ValueObject *valobj,
                                          std::string &dest) const {
   if (!valobj)
     return false;
-  if (valobj->CanProvideValue()) {
+  bool format_cstring = GetFormat() == eFormatCString;
+  if (format_cstring || valobj->CanProvideValue()) {
     Value &value(valobj->GetValue());
     const Value::ContextType context_type = value.GetContextType();
     ExecutionContext exe_ctx(valobj->GetExecutionContextRef());
     DataExtractor data;
 
     if (context_type == Value::ContextType::RegisterInfo) {
+      if (format_cstring && !valobj->CanProvideValue())
+        return false;
       const RegisterInfo *reg_info = value.GetRegisterInfo();
       if (reg_info) {
         Status error;
@@ -62,65 +65,117 @@ bool TypeFormatImpl_Format::FormatObject(ValueObject *valobj,
                           exe_ctx.GetBestExecutionContextScope());
         dest = std::string(reg_sstr.GetString());
       }
-    } else {
-      CompilerType compiler_type = value.GetCompilerType();
-      if (compiler_type) {
-        // put custom bytes to display in the DataExtractor to override the
-        // default value logic
-        if (GetFormat() == eFormatCString) {
-          lldb_private::Flags type_flags(compiler_type.GetTypeInfo(
-              nullptr)); // disambiguate w.r.t. TypeFormatImpl::Flags
-          if (type_flags.Test(eTypeIsPointer) &&
-              !type_flags.Test(eTypeIsObjC)) {
-            // if we are dumping a pointer as a c-string, get the pointee data
-            // as a string
-            TargetSP target_sp(valobj->GetTargetSP());
-            if (target_sp) {
-              size_t max_len = target_sp->GetMaximumSizeOfStringSummary();
+    } else if (CompilerType compiler_type = value.GetCompilerType()) {
+      // put custom bytes to display in the DataExtractor to override the
+      // default value logic
+      if (format_cstring) {
+        uint64_t length = UINT64_MAX;
+        char terminator = 0;
+        if (ValueObject *ptr_valobj =
+                compiler_type.GetStringPointer(valobj, &length, &terminator)) {
+          // if we are dumping a pointer as a c-string, get the pointee data
+          // as a string
+          if (Target *target = exe_ctx.GetTargetPtr()) {
+            size_t max_len = target->GetMaximumSizeOfStringSummary();
+            if (max_len > length)
+              max_len = length;
+            AddressType address_type = eAddressTypeInvalid;
+            if (addr_t ptr_val = ptr_valobj->GetPointerValue(&address_type);
+                ptr_val != LLDB_INVALID_ADDRESS) {
               Status error;
               WritableDataBufferSP buffer_sp(
                   new DataBufferHeap(max_len + 1, 0));
-              Address address(valobj->GetPointerValue());
-              target_sp->ReadCStringFromMemory(
-                  address, (char *)buffer_sp->GetBytes(), max_len, error);
+              switch (address_type) {
+              case eAddressTypeInvalid:
+                break;
+              case eAddressTypeHost: {
+                const uint8_t *host_ptr =
+                    reinterpret_cast<const uint8_t *>(ptr_val);
+                if (length == UINT64_MAX)
+                  if (const uint8_t *host_terminator =
+                          static_cast<const uint8_t *>(
+                              memchr(host_ptr, terminator, max_len)))
+                    max_len = host_terminator - host_ptr;
+                memcpy(buffer_sp->GetBytes(), host_ptr, max_len);
+                break;
+              }
+              case eAddressTypeLoad:
+              case eAddressTypeFile: {
+                Address address(LLDB_INVALID_ADDRESS);
+                switch (address_type) {
+                default:
+                  llvm_unreachable("already checked");
+                case eAddressTypeLoad:
+                  address = ptr_val;
+                  break;
+                case eAddressTypeFile:
+                  if (ModuleSP module = ptr_valobj->GetModule())
+                    if (ObjectFile *objfile = module->GetObjectFile()) {
+                      address = Address(ptr_val, objfile->GetSectionList());
+                      addr_t load_addr = address.GetLoadAddress(target);
+                      if (load_addr != LLDB_INVALID_ADDRESS)
+                        address = load_addr;
+                    }
+                  break;
+                }
+                if (address == LLDB_INVALID_ADDRESS)
+                  break;
+                if (length == UINT64_MAX)
+                  max_len = target->ReadCStringFromMemory(
+                      address, (char *)buffer_sp->GetBytes(), max_len, error,
+                      false, terminator);
+                else
+                  max_len = target->ReadMemory(address, buffer_sp->GetBytes(),
+                                               max_len, error);
+                break;
+              }
+              }
               if (error.Success())
-                data.SetData(buffer_sp);
+                data.SetData(buffer_sp, 0, max_len + 1);
             }
           }
-        } else {
+        } else if (valobj->CanProvideValue()) {
           Status error;
           valobj->GetData(data, error);
           if (error.Fail())
             return false;
-        }
-
-        ExecutionContextScope *exe_scope =
-            exe_ctx.GetBestExecutionContextScope();
-        std::optional<uint64_t> size = compiler_type.GetByteSize(exe_scope);
-        if (!size)
+          char terminator = '\0';
+          data.Append(&terminator, 1);
+        } else
           return false;
-        StreamString sstr;
-        compiler_type.DumpTypeValue(
-            &sstr,                          // The stream to use for display
-            GetFormat(),                    // Format to display this type with
-            data,                           // Data to extract from
-            0,                              // Byte offset into "m_data"
-            *size,                          // Byte size of item in "m_data"
-            valobj->GetBitfieldBitSize(),   // Bitfield bit size
-            valobj->GetBitfieldBitOffset(), // Bitfield bit offset
-            exe_scope);
-        // Given that we do not want to set the ValueObject's m_error for a
-        // formatting error (or else we wouldn't be able to reformat until a
-        // next update), an empty string is treated as a "false" return from
-        // here, but that's about as severe as we get
-        // CompilerType::DumpTypeValue() should always return something, even
-        // if that something is an error message
-        dest = std::string(sstr.GetString());
+      } else {
+        Status error;
+        valobj->GetData(data, error);
+        if (error.Fail())
+          return false;
       }
+
+      ExecutionContextScope *exe_scope = exe_ctx.GetBestExecutionContextScope();
+      std::optional<uint64_t> size = compiler_type.GetByteSize(exe_scope);
+      if (!size)
+        return false;
+      StreamString sstr;
+      compiler_type.DumpTypeValue(
+          &sstr,                        // The stream to use for display
+          GetFormat(),                  // Format to display this type with
+          data,                         // Data to extract from
+          0,                            // Byte offset into "m_data"
+          *size,                        // Byte size of item in "m_data"
+          valobj->GetBitfieldBitSize(), // Bitfield bit size
+          value.GetBitOffset() +
+              valobj->GetBitfieldBitOffset(), // Bitfield bit offset
+          exe_scope);
+      // Given that we do not want to set the ValueObject's m_error for a
+      // formatting error (or else we wouldn't be able to reformat until a
+      // next update), an empty string is treated as a "false" return from
+      // here, but that's about as severe as we get
+      // CompilerType::DumpTypeValue() should always return something, even
+      // if that something is an error message
+      dest = std::string(sstr.GetString());
     }
     return !dest.empty();
-  } else
-    return false;
+  }
+  return false;
 }
 
 std::string TypeFormatImpl_Format::GetDescription() {

@@ -663,6 +663,20 @@ lldb::SBValue SBValue::CreateBoolValue(const char *name, bool value) {
   return sb_value;
 }
 
+lldb::SBValue SBValue::CreateValueFromType(lldb::SBType type) {
+  LLDB_INSTRUMENT_VA(this, type);
+
+  lldb::SBValue sb_value;
+  ValueLocker locker;
+  lldb::ValueObjectSP value_sp(GetSP(locker));
+  if (value_sp && type.IsValid()) {
+    ExecutionContext exe_ctx(value_sp->GetExecutionContextRef());
+    sb_value.SetSP(type.GetSP()->GetCompilerType(false).CreateValueFromType(
+        exe_ctx.GetBestExecutionContextScope()));
+  }
+  return sb_value;
+}
+
 SBValue SBValue::GetChildAtIndex(uint32_t idx) {
   LLDB_INSTRUMENT_VA(this, idx);
 
@@ -962,6 +976,21 @@ lldb::addr_t SBValue::GetValueAsAddress() {
   }
 
   return fail_value;
+}
+
+SBType SBValue::GetValueAsType() {
+  LLDB_INSTRUMENT_VA(this);
+
+  SBType sb_type;
+  ValueLocker locker;
+  lldb::ValueObjectSP value_sp(GetSP(locker));
+  TypeImplSP type_sp;
+  if (value_sp) {
+    type_sp = std::make_shared<TypeImpl>(value_sp->GetValueAsCompilerType());
+    sb_type.SetSP(type_sp);
+  }
+
+  return sb_type;
 }
 
 bool SBValue::MightHaveChildren() {

@@ -17,6 +17,8 @@
 #include "lldb/Utility/Status.h"
 #include "lldb/lldb-forward.h"
 
+#include "llvm/Support/MathExtras.h"
+
 #include <functional>
 #include <memory>
 #include <vector>
@@ -28,15 +30,19 @@ using namespace lldb_private;
 
 ValueObjectChild::ValueObjectChild(
     ValueObject &parent, const CompilerType &compiler_type, ConstString name,
-    uint64_t byte_size, int32_t byte_offset, uint32_t bitfield_bit_size,
+    uint64_t bit_size, int64_t bit_offset, uint32_t bitfield_bit_size,
     uint32_t bitfield_bit_offset, bool is_base_class, bool is_deref_of_parent,
     AddressType child_ptr_or_ref_addr_type, uint64_t language_flags)
     : ValueObject(parent), m_compiler_type(compiler_type),
-      m_byte_size(byte_size), m_byte_offset(byte_offset),
+      m_byte_offset(llvm::divideFloorSigned(bit_offset, 8)),
       m_bitfield_bit_size(bitfield_bit_size),
       m_bitfield_bit_offset(bitfield_bit_offset),
       m_is_base_class(is_base_class), m_is_deref_of_parent(is_deref_of_parent),
+      m_bit_offset(llvm::mod(bit_offset, 8)),
       m_can_update_with_invalid_exe_ctx() {
+  uint64_t end_bit_offset = m_bit_offset + bit_size;
+  m_byte_size = llvm::divideCeil(end_bit_offset, 8);
+  m_excess_bit_size = m_byte_size * 8 - end_bit_offset;
   m_name = name;
   SetAddressTypeOfChildren(child_ptr_or_ref_addr_type);
   SetLanguageFlags(language_flags);
@@ -111,6 +117,7 @@ bool ValueObjectChild::UpdateValue() {
       // Copy the parent scalar value and the scalar value type
       m_value.GetScalar() = parent->GetValue().GetScalar();
       m_value.SetValueType(parent->GetValue().GetValueType());
+      m_value.SetBitOffset(parent->GetValue().GetBitOffset());
 
       Flags parent_type_flags(parent_type.GetTypeInfo());
       const bool is_instance_ptr_base =
@@ -179,7 +186,9 @@ bool ValueObjectChild::UpdateValue() {
 
           // Set this object's scalar value to the address of its value by
           // adding its byte offset to the parent address
-          m_value.GetScalar() += m_byte_offset;
+          uint8_t bit_offset = m_value.GetBitOffset() + m_bit_offset;
+          m_value.GetScalar() += m_byte_offset + (bit_offset >= 8);
+          m_value.SetBitOffset(bit_offset);
         }
       } break;
 
@@ -187,7 +196,7 @@ bool ValueObjectChild::UpdateValue() {
         // try to extract the child value from the parent's scalar value
         {
           Scalar scalar(m_value.GetScalar());
-          scalar.ExtractBitfield(8 * m_byte_size, 8 * m_byte_offset);
+          scalar.ExtractBitfield(*GetBitSize(), GetBitOffset());
           m_value.GetScalar() = scalar;
         }
         break;

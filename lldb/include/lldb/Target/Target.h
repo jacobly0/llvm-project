@@ -1100,11 +1100,13 @@ public:
                             lldb::addr_t *load_addr_ptr = nullptr);
 
   size_t ReadCStringFromMemory(const Address &addr, std::string &out_str,
-                               Status &error, bool force_live_memory = false);
+                               Status &error, bool force_live_memory = false,
+                               char terminator = '\0');
 
   size_t ReadCStringFromMemory(const Address &addr, char *dst,
                                size_t dst_max_len, Status &result_error,
-                               bool force_live_memory = false);
+                               bool force_live_memory = false,
+                               char terminator = '\0');
 
   /// Read a NULL terminated string from memory
   ///

@@ -87,7 +87,7 @@
 #endif
 
 #ifndef HANDLE_DW_LNE
-#define HANDLE_DW_LNE(ID, NAME)
+#define HANDLE_DW_LNE(ID, NAME, VERSION, VENDOR)
 #endif
 
 #ifndef HANDLE_DW_LNCT
@@ -283,6 +283,10 @@ HANDLE_DW_TAG(0xb001, BORLAND_Delphi_string, 0, BORLAND, DW_KIND_TYPE)
 HANDLE_DW_TAG(0xb002, BORLAND_Delphi_dynamic_array, 0, BORLAND, DW_KIND_TYPE)
 HANDLE_DW_TAG(0xb003, BORLAND_Delphi_set, 0, BORLAND, DW_KIND_TYPE)
 HANDLE_DW_TAG(0xb004, BORLAND_Delphi_variant, 0, BORLAND, DW_KIND_TYPE)
+
+// Zig extensions
+HANDLE_DW_TAG(0xfdb1, ZIG_padding, 0, ZIG, DW_KIND_NONE)
+HANDLE_DW_TAG(0xfdb2, ZIG_comptime_value, 0, ZIG, DW_KIND_NONE)
 
 // Attributes.
 HANDLE_DW_AT(0x01, sibling, 2, DWARF)
@@ -575,6 +579,14 @@ HANDLE_DW_AT(0x2901, GO_key, 0, GO)
 HANDLE_DW_AT(0x2902, GO_elem, 0, GO)
 HANDLE_DW_AT(0x2903, GO_embedded_field, 0, GO)
 HANDLE_DW_AT(0x2904, GO_runtime_type, 0, GO)
+
+// Zig extensions.
+HANDLE_DW_AT(0x2ccd, ZIG_parent, 0, ZIG)
+HANDLE_DW_AT(0x2cce, ZIG_padding, 0, ZIG)
+HANDLE_DW_AT(0x2cd0, ZIG_relative_decl, 0, ZIG)
+HANDLE_DW_AT(0x2cd1, ZIG_decl_line_relative, 0, ZIG)
+HANDLE_DW_AT(0x2cd2, ZIG_comptime_value, 0, ZIG)
+HANDLE_DW_AT(0x2ce2, ZIG_sentinel, 0, ZIG)
 
 HANDLE_DW_AT(0x3210, UPC_threads_scaled, 0, UPC)
 
@@ -1127,11 +1139,13 @@ HANDLE_DW_CC(0xcf, LLVM_SwiftTail)
 HANDLE_DW_CC(0xff, GDB_IBM_OpenCL)
 
 // Line Number Extended Opcode Encodings
-HANDLE_DW_LNE(0x01, end_sequence)
-HANDLE_DW_LNE(0x02, set_address)
-HANDLE_DW_LNE(0x03, define_file)
-// New in DWARF v4:
-HANDLE_DW_LNE(0x04, set_discriminator)
+HANDLE_DW_LNE(0x01, end_sequence, 2, DWARF)
+HANDLE_DW_LNE(0x02, set_address, 2, DWARF)
+HANDLE_DW_LNE(0x03, define_file, 2, DWARF)
+HANDLE_DW_LNE(0x04, set_discriminator, 4, DWARF)
+
+// Zig extensions
+HANDLE_DW_LNE(0xec, ZIG_set_decl, 0, ZIG)
 
 // Line Number Standard Opcode Encodings.
 HANDLE_DW_LNS(0x00, extended_op)

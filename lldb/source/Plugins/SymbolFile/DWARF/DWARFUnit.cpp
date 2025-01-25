@@ -246,8 +246,12 @@ void DWARFUnit::ExtractDIEsRWLocked() {
   die_index_stack.reserve(32);
   die_index_stack.push_back(0);
   bool prev_die_had_children = false;
-  while (offset < next_cu_offset && die.Extract(data, *this, &offset)) {
+  bool has_parent_attr;
+  while (offset < next_cu_offset &&
+         die.Extract(data, *this, &offset, &has_parent_attr)) {
     const bool null_die = die.IsNULL();
+    const bool padding_die =
+        die.Tag() == DW_TAG_ZIG_padding && !die.HasChildren();
     if (depth == 0) {
       assert(m_die_array.empty() && "Compile unit DIE already added");
 
@@ -285,14 +289,15 @@ void DWARFUnit::ExtractDIEsRWLocked() {
           if (!m_die_array.empty())
             m_die_array.back().SetHasChildren(false);
         }
-      } else {
-        die.SetParentIndex(m_die_array.size() - die_index_stack[depth - 1]);
+      } else if (!padding_die) {
+        if (!has_parent_attr)
+          die.SetParentIndex(m_die_array.size() - die_index_stack[depth - 1]);
 
         if (die_index_stack.back())
           m_die_array[die_index_stack.back()].SetSiblingIndex(
               m_die_array.size() - die_index_stack.back());
 
-        // Only push the DIE if it isn't a NULL DIE
+        // Only push the DIE if it isn't a NULL or padding DIE
         m_die_array.push_back(die);
       }
     }
@@ -305,7 +310,7 @@ void DWARFUnit::ExtractDIEsRWLocked() {
       if (depth > 0)
         --depth;
       prev_die_had_children = false;
-    } else {
+    } else if (!padding_die) {
       die_index_stack.back() = m_die_array.size() - 1;
       // Normal DIE
       const bool die_has_children = die.HasChildren();

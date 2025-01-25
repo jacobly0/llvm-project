@@ -84,6 +84,7 @@ enum LLVMConstants : uint32_t {
   DWARF_VENDOR_PGI,
   DWARF_VENDOR_SUN,
   DWARF_VENDOR_UPC,
+  DWARF_VENDOR_ZIG,
   ///\}
 };
 
@@ -778,7 +779,7 @@ enum LineNumberOps : uint8_t {
 
 /// Line Number Extended Opcode Encodings.
 enum LineNumberExtendedOps {
-#define HANDLE_DW_LNE(ID, NAME) DW_LNE_##NAME = ID,
+#define HANDLE_DW_LNE(ID, NAME, VERSION, VENDOR) DW_LNE_##NAME = ID,
 #include "llvm/BinaryFormat/Dwarf.def"
   DW_LNE_lo_user = 0x80,
   DW_LNE_hi_user = 0xff

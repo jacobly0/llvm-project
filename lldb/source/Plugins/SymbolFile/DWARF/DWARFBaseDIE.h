@@ -125,6 +125,8 @@ public:
 
   const char *getShortName() const { return GetName(); }
 
+  bool IsGlobalOrStaticScopeVariable() const;
+
 protected:
   DWARFUnit *m_cu = nullptr;
   DWARFDebugInfoEntry *m_die = nullptr;

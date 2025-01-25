@@ -23,7 +23,7 @@ using namespace lldb_private;
 class ValueObjectVTableChild : public ValueObject {
 public:
   ValueObjectVTableChild(ValueObject &parent, uint32_t func_idx,
-                         uint64_t addr_size)
+                         uint32_t addr_size)
       : ValueObject(parent), m_func_idx(func_idx), m_addr_size(addr_size) {
     SetFormat(eFormatPointer);
     SetName(ConstString(llvm::formatv("[{0}]", func_idx).str()));
@@ -32,6 +32,9 @@ public:
   ~ValueObjectVTableChild() override = default;
 
   std::optional<uint64_t> GetByteSize() override { return m_addr_size; };
+  std::optional<uint64_t> GetBitSize() override {
+    return m_addr_size * UINT64_C(8);
+  };
 
   llvm::Expected<uint32_t> CalculateNumChildren(uint32_t max) override {
     return 0;
@@ -74,7 +77,7 @@ protected:
     }
 
     // Each `vtable_entry_addr` points to the function pointer.
-    addr_t vtable_entry_addr = parent_addr + m_func_idx * m_addr_size;
+    addr_t vtable_entry_addr = parent_addr + m_func_idx * addr_t(m_addr_size);
     addr_t vfunc_ptr =
         process_sp->ReadPointerFromMemory(vtable_entry_addr, m_error);
     if (m_error.Fail()) {
@@ -136,7 +139,7 @@ protected:
   };
 
   const uint32_t m_func_idx;
-  const uint64_t m_addr_size;
+  const uint32_t m_addr_size;
 
 private:
   // For ValueObject only

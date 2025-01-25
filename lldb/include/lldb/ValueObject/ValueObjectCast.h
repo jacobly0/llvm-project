@@ -31,6 +31,7 @@ public:
                                     const CompilerType &cast_type);
 
   std::optional<uint64_t> GetByteSize() override;
+  std::optional<uint64_t> GetBitSize() override;
 
   llvm::Expected<uint32_t> CalculateNumChildren(uint32_t max) override;
 

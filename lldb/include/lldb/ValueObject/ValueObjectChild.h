@@ -30,8 +30,14 @@ public:
   ~ValueObjectChild() override;
 
   std::optional<uint64_t> GetByteSize() override { return m_byte_size; }
+  std::optional<uint64_t> GetBitSize() override {
+    return m_byte_size * UINT64_C(8) - m_excess_bit_size - m_bit_offset;
+  }
 
   lldb::offset_t GetByteOffset() override { return m_byte_offset; }
+  lldb::offset_t GetBitOffset() override {
+    return m_byte_offset * INT64_C(8) + m_bit_offset;
+  }
 
   uint32_t GetBitfieldBitSize() override { return m_bitfield_bit_size; }
 
@@ -66,8 +72,10 @@ protected:
   int32_t m_byte_offset;
   uint8_t m_bitfield_bit_size;
   uint8_t m_bitfield_bit_offset;
-  bool m_is_base_class;
-  bool m_is_deref_of_parent;
+  uint8_t m_is_base_class : 1;
+  uint8_t m_is_deref_of_parent : 1;
+  uint8_t m_bit_offset : 3;
+  uint8_t m_excess_bit_size : 3;
   std::optional<LazyBool> m_can_update_with_invalid_exe_ctx;
 
   friend class ValueObject;
@@ -76,7 +84,7 @@ protected:
   friend class ValueObjectVTable;
 
   ValueObjectChild(ValueObject &parent, const CompilerType &compiler_type,
-                   ConstString name, uint64_t byte_size, int32_t byte_offset,
+                   ConstString name, uint64_t bit_size, int64_t bit_offset,
                    uint32_t bitfield_bit_size, uint32_t bitfield_bit_offset,
                    bool is_base_class, bool is_deref_of_parent,
                    AddressType child_ptr_or_ref_addr_type,

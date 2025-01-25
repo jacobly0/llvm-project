@@ -4750,7 +4750,7 @@ TypeSystemClang::GetFloatTypeSemantics(size_t byte_size) {
     return ast.getFloatTypeSemantics(ast.LongDoubleTy);
   else if (bit_size == ast.getTypeSize(ast.HalfTy))
     return ast.getFloatTypeSemantics(ast.HalfTy);
-  return llvm::APFloatBase::Bogus();
+  return llvm::APFloat::Bogus();
 }
 
 std::optional<uint64_t>
@@ -6182,11 +6182,11 @@ uint32_t TypeSystemClang::GetNumPointeeChildren(clang::QualType type) {
 llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
     lldb::opaque_compiler_type_t type, ExecutionContext *exe_ctx, size_t idx,
     bool transparent_pointers, bool omit_empty_base_classes,
-    bool ignore_array_bounds, std::string &child_name,
-    uint32_t &child_byte_size, int32_t &child_byte_offset,
-    uint32_t &child_bitfield_bit_size, uint32_t &child_bitfield_bit_offset,
-    bool &child_is_base_class, bool &child_is_deref_of_parent,
-    ValueObject *valobj, uint64_t &language_flags) {
+    bool ignore_array_bounds, std::string &child_name, uint64_t &child_bit_size,
+    int64_t &child_bit_offset, uint32_t &child_bitfield_bit_size,
+    uint32_t &child_bitfield_bit_offset, bool &child_is_base_class,
+    bool &child_is_deref_of_parent, ValueObject *valobj,
+    uint64_t &language_flags) {
   if (!type)
     return CompilerType();
 
@@ -6217,9 +6217,8 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
       case clang::BuiltinType::ObjCId:
       case clang::BuiltinType::ObjCClass:
         child_name = "isa";
-        child_byte_size =
-            getASTContext().getTypeSize(getASTContext().ObjCBuiltinClassTy) /
-            CHAR_BIT;
+        child_bit_size =
+            getASTContext().getTypeSize(getASTContext().ObjCBuiltinClassTy);
         return GetType(getASTContext().ObjCBuiltinClassTy);
 
       default:
@@ -6281,8 +6280,7 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
                                .getQuantity() *
                            8;
 
-            // Base classes should be a multiple of 8 bits in size
-            child_byte_offset = bit_offset / 8;
+            child_bit_offset = bit_offset;
             CompilerType base_class_clang_type = GetType(base_class->getType());
             child_name = base_class_clang_type.GetTypeName().AsCString("");
             std::optional<uint64_t> size =
@@ -6294,7 +6292,7 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
 
             // Base classes bit sizes should be a multiple of 8 bits in size
             assert(base_class_clang_type_bit_size % 8 == 0);
-            child_byte_size = base_class_clang_type_bit_size / 8;
+            child_bit_size = base_class_clang_type_bit_size;
             child_is_base_class = true;
             return base_class_clang_type;
           }
@@ -6323,19 +6321,16 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
           if (!size)
             return llvm::createStringError("no size info for field");
 
-          child_byte_size = *size;
-          const uint32_t child_bit_size = child_byte_size * 8;
+          child_bit_size = *size * UINT64_C(8);
 
           // Figure out the field offset within the current struct/union/class
           // type
           bit_offset = record_layout.getFieldOffset(field_idx);
           if (FieldIsBitfield(*field, child_bitfield_bit_size)) {
             child_bitfield_bit_offset = bit_offset % child_bit_size;
-            const uint32_t child_bit_offset =
-                bit_offset - child_bitfield_bit_offset;
-            child_byte_offset = child_bit_offset / 8;
+            child_bit_offset = bit_offset - child_bitfield_bit_offset;
           } else {
-            child_byte_offset = bit_offset / 8;
+            child_bit_offset = bit_offset;
           }
 
           return field_clang_type;
@@ -6381,8 +6376,8 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
                   clang::TypeInfo ivar_type_info =
                       getASTContext().getTypeInfo(ivar_qual_type.getTypePtr());
 
-                  child_byte_size = ivar_type_info.Width / 8;
-                  child_byte_offset = 0;
+                  child_bit_size = ivar_type_info.Width;
+                  child_bit_offset = 0;
                   child_is_base_class = true;
 
                   return GetType(ivar_qual_type);
@@ -6412,7 +6407,7 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
                 clang::TypeInfo ivar_type_info =
                     getASTContext().getTypeInfo(ivar_qual_type.getTypePtr());
 
-                child_byte_size = ivar_type_info.Width / 8;
+                child_bit_size = ivar_type_info.Width;
 
                 // Figure out the field offset within the current
                 // struct/union/class type For ObjC objects, we can't trust the
@@ -6421,7 +6416,7 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
                 // from the changing size of base classes that are newer than
                 // this class. So if we have a process around that we can ask
                 // about this object, do so.
-                child_byte_offset = LLDB_INVALID_IVAR_OFFSET;
+                child_bit_offset = LLDB_INVALID_IVAR_OFFSET;
                 Process *process = nullptr;
                 if (exe_ctx)
                   process = exe_ctx->GetProcessPtr();
@@ -6430,8 +6425,11 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
                       ObjCLanguageRuntime::Get(*process);
                   if (objc_runtime != nullptr) {
                     CompilerType parent_ast_type = GetType(parent_qual_type);
-                    child_byte_offset = objc_runtime->GetByteOffsetForIvar(
-                        parent_ast_type, ivar_decl->getNameAsString().c_str());
+                    child_bit_offset =
+                        objc_runtime->GetByteOffsetForIvar(
+                            parent_ast_type,
+                            ivar_decl->getNameAsString().c_str()) *
+                        8;
                   }
                 }
 
@@ -6439,11 +6437,11 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
                 // twice...
                 bit_offset = INT32_MAX;
 
-                if (child_byte_offset ==
-                    static_cast<int32_t>(LLDB_INVALID_IVAR_OFFSET)) {
+                if (child_bit_offset ==
+                    static_cast<int64_t>(LLDB_INVALID_IVAR_OFFSET)) {
                   bit_offset = interface_layout.getFieldOffset(child_idx -
                                                                superclass_idx);
-                  child_byte_offset = bit_offset / 8;
+                  child_bit_offset = bit_offset;
                 }
 
                 // Note, the ObjC Ivar Byte offset is just that, it doesn't
@@ -6478,7 +6476,7 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
         bool tmp_child_is_deref_of_parent = false;
         return pointee_clang_type.GetChildCompilerTypeAtIndex(
             exe_ctx, idx, transparent_pointers, omit_empty_base_classes,
-            ignore_array_bounds, child_name, child_byte_size, child_byte_offset,
+            ignore_array_bounds, child_name, child_bit_size, child_bit_offset,
             child_bitfield_bit_size, child_bitfield_bit_offset,
             child_is_base_class, tmp_child_is_deref_of_parent, valobj,
             language_flags);
@@ -6495,8 +6493,8 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
         if (idx == 0 && pointee_clang_type.GetCompleteType()) {
           if (std::optional<uint64_t> size =
                   pointee_clang_type.GetByteSize(get_exe_scope())) {
-            child_byte_size = *size;
-            child_byte_offset = 0;
+            child_bit_size = *size * UINT64_C(8);
+            child_bit_offset = 0;
             return pointee_clang_type;
           }
         }
@@ -6518,8 +6516,8 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
           child_name.assign(element_name);
           if (std::optional<uint64_t> size =
                   element_type.GetByteSize(get_exe_scope())) {
-            child_byte_size = *size;
-            child_byte_offset = (int32_t)idx * (int32_t)child_byte_size;
+            child_bit_size = *size * UINT64_C(8);
+            child_bit_offset = (int32_t)idx * child_bit_size;
             return element_type;
           }
         }
@@ -6537,8 +6535,8 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
           child_name = std::string(llvm::formatv("[{0}]", idx));
           if (std::optional<uint64_t> size =
                   element_type.GetByteSize(get_exe_scope())) {
-            child_byte_size = *size;
-            child_byte_offset = (int32_t)idx * (int32_t)child_byte_size;
+            child_bit_size = *size * UINT64_C(8);
+            child_bit_offset = (int32_t)idx * child_bit_size;
             return element_type;
           }
         }
@@ -6558,7 +6556,7 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
       bool tmp_child_is_deref_of_parent = false;
       return pointee_clang_type.GetChildCompilerTypeAtIndex(
           exe_ctx, idx, transparent_pointers, omit_empty_base_classes,
-          ignore_array_bounds, child_name, child_byte_size, child_byte_offset,
+          ignore_array_bounds, child_name, child_bit_size, child_bit_offset,
           child_bitfield_bit_size, child_bitfield_bit_offset,
           child_is_base_class, tmp_child_is_deref_of_parent, valobj,
           language_flags);
@@ -6576,8 +6574,8 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
       if (idx == 0) {
         if (std::optional<uint64_t> size =
                 pointee_clang_type.GetByteSize(get_exe_scope())) {
-          child_byte_size = *size;
-          child_byte_offset = 0;
+          child_bit_size = *size * UINT64_C(8);
+          child_bit_offset = 0;
           return pointee_clang_type;
         }
       }
@@ -6598,7 +6596,7 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
         bool tmp_child_is_deref_of_parent = false;
         return pointee_clang_type.GetChildCompilerTypeAtIndex(
             exe_ctx, idx, transparent_pointers, omit_empty_base_classes,
-            ignore_array_bounds, child_name, child_byte_size, child_byte_offset,
+            ignore_array_bounds, child_name, child_bit_size, child_bit_offset,
             child_bitfield_bit_size, child_bitfield_bit_offset,
             child_is_base_class, tmp_child_is_deref_of_parent, valobj,
             language_flags);
@@ -6614,8 +6612,8 @@ llvm::Expected<CompilerType> TypeSystemClang::GetChildCompilerTypeAtIndex(
         if (idx == 0) {
           if (std::optional<uint64_t> size =
                   pointee_clang_type.GetByteSize(get_exe_scope())) {
-            child_byte_size = *size;
-            child_byte_offset = 0;
+            child_bit_size = *size * UINT64_C(8);
+            child_bit_offset = 0;
             return pointee_clang_type;
           }
         }
@@ -6888,8 +6886,8 @@ size_t TypeSystemClang::GetIndexOfChildMemberWithName(
       //
       //                    child_name.assign(element_name);
       //                    assert(field_type_info.first % 8 == 0);
-      //                    child_byte_size = field_type_info.first / 8;
-      //                    child_byte_offset = idx * child_byte_size;
+      //                    child_bit_size = field_type_info.first;
+      //                    child_bit_offset = idx * child_bit_size;
       //                    return array->getElementType().getAsOpaquePtr();
       //                }
     } break;
@@ -7067,8 +7065,8 @@ TypeSystemClang::GetIndexOfChildWithName(lldb::opaque_compiler_type_t type,
       //
       //                    child_name.assign(element_name);
       //                    assert(field_type_info.first % 8 == 0);
-      //                    child_byte_size = field_type_info.first / 8;
-      //                    child_byte_offset = idx * child_byte_size;
+      //                    child_bit_size = field_type_info.first;
+      //                    child_bit_offset = idx * child_bit_size;
       //                    return array->getElementType().getAsOpaquePtr();
       //                }
     } break;
@@ -7123,8 +7121,8 @@ TypeSystemClang::GetIndexOfChildWithName(lldb::opaque_compiler_type_t type,
         //                        std::pair<uint64_t, unsigned> clang_type_info
         //                        = ast->getTypeInfo(pointee_type);
         //                        assert(clang_type_info.first % 8 == 0);
-        //                        child_byte_size = clang_type_info.first / 8;
-        //                        child_byte_offset = 0;
+        //                        child_bit_size = clang_type_info.first;
+        //                        child_bit_offset = 0;
         //                        return pointee_type.getAsOpaquePtr();
         //                    }
       }
@@ -7135,6 +7133,21 @@ TypeSystemClang::GetIndexOfChildWithName(lldb::opaque_compiler_type_t type,
     }
   }
   return UINT32_MAX;
+}
+
+ValueObject *
+TypeSystemClang::GetStringPointer(lldb::opaque_compiler_type_t type,
+                                  ValueObject *valobj, uint64_t *length,
+                                  char *terminator) {
+  if (length)
+    *length = UINT64_MAX;
+  if (terminator)
+    *terminator = '\0';
+  Flags type_flags(
+      GetTypeInfo(type, nullptr)); // disambiguate w.r.t. TypeFormatImpl::Flags
+  if (type_flags.Test(eTypeIsPointer) && !type_flags.Test(eTypeIsObjC))
+    return valobj;
+  return nullptr;
 }
 
 CompilerType
@@ -7352,7 +7365,8 @@ TypeSystemClang::GetIntegralTemplateArgument(lldb::opaque_compiler_type_t type,
   return {{arg->getAsIntegral(), GetType(arg->getIntegralType())}};
 }
 
-CompilerType TypeSystemClang::GetTypeForFormatters(void *type) {
+CompilerType
+TypeSystemClang::GetTypeForFormatters(lldb::opaque_compiler_type_t type) {
   if (type)
     return ClangUtil::RemoveFastQualifiers(CompilerType(weak_from_this(), type));
   return CompilerType();
@@ -8789,6 +8803,7 @@ bool TypeSystemClang::DumpTypeValue(
       // We are down to a scalar type that we just need to display.
       {
         uint32_t item_count = 1;
+        const llvm::fltSemantics *flt_semantics = nullptr;
         // A few formats, we might need to modify our size and count for
         // depending
         // on how we are trying to display the value...
@@ -8796,13 +8811,11 @@ bool TypeSystemClang::DumpTypeValue(
         default:
         case eFormatBoolean:
         case eFormatBinary:
-        case eFormatComplex:
         case eFormatCString: // NULL terminated C strings
         case eFormatDecimal:
         case eFormatEnum:
         case eFormatHex:
         case eFormatHexUppercase:
-        case eFormatFloat:
         case eFormatOctal:
         case eFormatOSType:
         case eFormatUnsigned:
@@ -8816,9 +8829,17 @@ bool TypeSystemClang::DumpTypeValue(
         case eFormatVectorOfUInt32:
         case eFormatVectorOfSInt64:
         case eFormatVectorOfUInt64:
+        case eFormatVectorOfUInt128:
+          break;
+
+        case eFormatFloat:
+        case eFormatComplex:
+        case eFormatVectorOfFloat16:
         case eFormatVectorOfFloat32:
         case eFormatVectorOfFloat64:
-        case eFormatVectorOfUInt128:
+          flt_semantics = &GetFloatTypeSemantics(byte_size);
+          if (flt_semantics == &llvm::APFloat::Bogus())
+            flt_semantics = nullptr;
           break;
 
         case eFormatChar:
@@ -8844,7 +8865,7 @@ bool TypeSystemClang::DumpTypeValue(
         return DumpDataExtractor(data, &s, byte_offset, format, byte_size,
                                  item_count, UINT32_MAX, LLDB_INVALID_ADDRESS,
                                  bitfield_bit_size, bitfield_bit_offset,
-                                 exe_scope);
+                                 exe_scope, false, flt_semantics);
       }
       break;
     }

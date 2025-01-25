@@ -601,7 +601,8 @@ DWARFDebugLine::getLineTable(uint64_t Offset) const {
 
 Expected<const DWARFDebugLine::LineTable *> DWARFDebugLine::getOrParseLineTable(
     DWARFDataExtractor &DebugLineData, uint64_t Offset, const DWARFContext &Ctx,
-    const DWARFUnit *U, function_ref<void(Error)> RecoverableErrorHandler) {
+    DWARFUnit *U, function_ref<void(Error)> RecoverableErrorHandler,
+    function_ref<DeclInfo(uint64_t)> DeclLookup) {
   if (!DebugLineData.isValidOffset(Offset))
     return createStringError(errc::invalid_argument,
                              "offset 0x%8.8" PRIx64
@@ -612,8 +613,8 @@ Expected<const DWARFDebugLine::LineTable *> DWARFDebugLine::getOrParseLineTable(
       LineTableMap.insert(LineTableMapTy::value_type(Offset, LineTable()));
   LineTable *LT = &Pos.first->second;
   if (Pos.second) {
-    if (Error Err =
-            LT->parse(DebugLineData, &Offset, Ctx, U, RecoverableErrorHandler))
+    if (Error Err = LT->parse(DebugLineData, &Offset, Ctx, U,
+                              RecoverableErrorHandler, DeclLookup))
       return std::move(Err);
     return LT;
   }
@@ -788,8 +789,9 @@ static std::optional<T> parseULEB128(DWARFDataExtractor &Data,
 
 Error DWARFDebugLine::LineTable::parse(
     DWARFDataExtractor &DebugLineData, uint64_t *OffsetPtr,
-    const DWARFContext &Ctx, const DWARFUnit *U,
-    function_ref<void(Error)> RecoverableErrorHandler, raw_ostream *OS,
+    const DWARFContext &Ctx, DWARFUnit *U,
+    function_ref<void(Error)> RecoverableErrorHandler,
+    function_ref<DeclInfo(uint64_t)> DeclLookup, raw_ostream *OS,
     bool Verbose) {
   assert((OS || !Verbose) && "cannot have verbose output without stream");
   const uint64_t DebugLineOffset = *OffsetPtr;
@@ -1014,6 +1016,58 @@ Error DWARFDebugLine::LineTable::parse(
         State.Row.Discriminator = TableData.getULEB128(Cursor);
         if (Cursor && Verbose)
           *OS << " (" << State.Row.Discriminator << ")";
+        break;
+
+      case DW_LNE_ZIG_set_decl:
+        if ((U || DeclLookup) &&
+            Len - 1 == Prologue.FormParams.getRefAddrByteSize()) {
+          uint64_t DeclDieOffset = TableData.getRelocatedValue(
+              Cursor, Prologue.FormParams.getRefAddrByteSize());
+          DeclInfo DeclInfo;
+          if (DeclLookup)
+            DeclInfo = DeclLookup(DeclDieOffset);
+          else if (U)
+            // Die must exist in the same unit for the file index to make sense.
+            if (DWARFDie DeclDie = U->getDIEForOffset(DeclDieOffset)) {
+              DeclInfo.Address = DeclDie.getLowPC();
+              DeclInfo.Line = DeclDie.getDeclLine();
+              DeclInfo.Column = DeclDie.getDeclColumn();
+              DeclInfo.File = DeclDie.getDeclFileIndex();
+            }
+          if (Verbose)
+            DWARFFormValue::dumpAddress(
+                *OS << " (", Prologue.FormParams.getRefAddrByteSize(),
+                DeclDieOffset);
+          if (DeclInfo.Address) {
+            State.Row.Address = *DeclInfo.Address;
+            if (Verbose)
+              DWARFFormValue::dumpAddress(
+                  *OS << ", addr = ", TableData.getAddressSize(),
+                  DeclInfo.Address->Address);
+          }
+          if (DeclInfo.Line) {
+            State.Row.Line = *DeclInfo.Line;
+            if (Verbose)
+              *OS << ", line = " << *DeclInfo.Line;
+          }
+          if (DeclInfo.Column) {
+            State.Row.Column = *DeclInfo.Column;
+            if (Verbose)
+              *OS << ", column = " << *DeclInfo.Column;
+          }
+          if (DeclInfo.File) {
+            State.Row.File = *DeclInfo.File;
+            if (Verbose)
+              *OS << ", file = " << *DeclInfo.File;
+          }
+          if (Verbose)
+            *OS << ')';
+          break;
+        }
+        TableData.skip(Cursor, Len - 1);
+        if (Cursor && Verbose)
+          *OS << format("Malformed extended op 0x%02.02" PRIx8, SubOpcode)
+              << format(" length %" PRIx64, Len);
         break;
 
       default:
@@ -1572,7 +1626,7 @@ DWARFDebugLine::LineTable DWARFDebugLine::SectionParser::parseNext(
   uint64_t OldOffset = Offset;
   LineTable LT;
   if (Error Err = LT.parse(DebugLineData, &Offset, Context, U,
-                           RecoverableErrorHandler, OS, Verbose))
+                           RecoverableErrorHandler, nullptr, OS, Verbose))
     UnrecoverableErrorHandler(std::move(Err));
   moveToNextTable(OldOffset, LT.Prologue);
   return LT;

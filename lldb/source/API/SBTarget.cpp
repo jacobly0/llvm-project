@@ -1462,6 +1462,18 @@ lldb::SBValue SBTarget::CreateValueFromExpression(const char *name,
   return sb_value;
 }
 
+lldb::SBValue SBTarget::CreateValueFromType(lldb::SBType type) {
+  LLDB_INSTRUMENT_VA(this, type);
+
+  SBValue sb_value;
+  if (IsValid() && type.IsValid()) {
+    ExecutionContext exe_ctx(m_opaque_sp.get(), false);
+    sb_value.SetSP(type.GetSP()->GetCompilerType(false).CreateValueFromType(
+        exe_ctx.GetBestExecutionContextScope()));
+  }
+  return sb_value;
+}
+
 bool SBTarget::DeleteAllWatchpoints() {
   LLDB_INSTRUMENT_VA(this);
 

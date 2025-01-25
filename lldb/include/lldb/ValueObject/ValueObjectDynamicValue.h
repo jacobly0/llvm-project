@@ -36,6 +36,7 @@ public:
   ~ValueObjectDynamicValue() override = default;
 
   std::optional<uint64_t> GetByteSize() override;
+  std::optional<uint64_t> GetBitSize() override;
 
   ConstString GetTypeName() override;
 

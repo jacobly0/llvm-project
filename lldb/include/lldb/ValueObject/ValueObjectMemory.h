@@ -42,6 +42,7 @@ public:
                                     const CompilerType &ast_type);
 
   std::optional<uint64_t> GetByteSize() override;
+  std::optional<uint64_t> GetBitSize() override;
 
   ConstString GetTypeName() override;
 

@@ -98,8 +98,8 @@ public:
     ValueObject *value_object = nullptr;
 
     std::string child_name;
-    uint32_t child_byte_size = 0;
-    int32_t child_byte_offset = 0;
+    uint64_t child_bit_size = 0;
+    int64_t child_bit_offset = 0;
     uint32_t child_bitfield_bit_size = 0;
     uint32_t child_bitfield_bit_offset = 0;
     bool child_is_base_class = false;
@@ -108,7 +108,7 @@ public:
 
     auto child_type_or_err = m_block_struct_type.GetChildCompilerTypeAtIndex(
         &exe_ctx, idx, transparent_pointers, omit_empty_base_classes,
-        ignore_array_bounds, child_name, child_byte_size, child_byte_offset,
+        ignore_array_bounds, child_name, child_bit_size, child_bit_offset,
         child_bitfield_bit_size, child_bitfield_bit_offset, child_is_base_class,
         child_is_deref_of_parent, value_object, language_flags);
     if (!child_type_or_err)
@@ -132,7 +132,7 @@ public:
     }
 
     ValueObjectSP child_sp(struct_sp->GetSyntheticChildAtOffset(
-        child_byte_offset, child_type, true,
+        child_bit_offset / 8, child_type, true,
         ConstString(child_name.c_str(), child_name.size())));
 
     return child_sp;

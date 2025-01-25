@@ -756,6 +756,20 @@ unsigned DWARFVerifier::verifyDebugInfoAttribute(const DWARFDie &Die,
       // This might be reference to a function declaration.
       if (DieTag == DW_TAG_GNU_call_site && RefTag == DW_TAG_subprogram)
         break;
+      if (Attr == DW_AT_abstract_origin && Die.getLanguage() == DW_LANG_Zig) {
+        auto ImpTag = DieTag;
+        if (DieTag == DW_TAG_imported_declaration)
+          if (auto ImportedDie =
+                  Die.getAttributeValueAsReferencedDie(DW_AT_import)) {
+            ImpTag = ImportedDie.getTag();
+            // Zig generic constant declarations can be functions.
+            if (ImpTag == DW_TAG_subprogram && RefTag == DW_TAG_constant)
+              break;
+          }
+        // Zig generic constant declarations can be types.
+        if (isType(ImpTag) && RefTag == DW_TAG_constant)
+          break;
+      }
       ReportError("Incompatible DW_AT_abstract_origin tag reference",
                   "DIE with tag " + TagString(DieTag) + " has " +
                       AttributeString(Attr) +

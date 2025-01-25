@@ -133,14 +133,6 @@ bool ValueObjectSynthetic::MightHaveChildren() {
   return (m_might_have_children != eLazyBoolNo);
 }
 
-std::optional<uint64_t> ValueObjectSynthetic::GetByteSize() {
-  return m_parent->GetByteSize();
-}
-
-lldb::ValueType ValueObjectSynthetic::GetValueType() const {
-  return m_parent->GetValueType();
-}
-
 void ValueObjectSynthetic::CreateSynthFilter() {
   ValueObject *valobj_for_frontend = m_parent;
   if (m_synth_sp->WantsDereference()) {

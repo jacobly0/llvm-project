@@ -205,15 +205,18 @@ lldb::ValueType ValueObjectConstResult::GetValueType() const {
 
 std::optional<uint64_t> ValueObjectConstResult::GetByteSize() {
   ExecutionContext exe_ctx(GetExecutionContextRef());
-  if (!m_byte_size) {
-    if (auto size = GetCompilerType().GetByteSize(
-            exe_ctx.GetBestExecutionContextScope()))
-      SetByteSize(*size);
-  }
+  if (!m_byte_size)
+    m_byte_size =
+        GetCompilerType().GetByteSize(exe_ctx.GetBestExecutionContextScope());
   return m_byte_size;
 }
-
-void ValueObjectConstResult::SetByteSize(size_t size) { m_byte_size = size; }
+std::optional<uint64_t> ValueObjectConstResult::GetBitSize() {
+  ExecutionContext exe_ctx(GetExecutionContextRef());
+  if (!m_bit_size)
+    m_bit_size =
+        GetCompilerType().GetBitSize(exe_ctx.GetBestExecutionContextScope());
+  return m_bit_size;
+}
 
 llvm::Expected<uint32_t>
 ValueObjectConstResult::CalculateNumChildren(uint32_t max) {

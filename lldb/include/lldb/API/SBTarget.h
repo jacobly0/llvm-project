@@ -875,6 +875,8 @@ public:
 
   lldb::SBValue CreateValueFromExpression(const char *name, const char *expr);
 
+  lldb::SBValue CreateValueFromType(lldb::SBType type);
+
   SBSourceManager GetSourceManager();
 
   lldb::SBInstructionList ReadInstructions(lldb::SBAddress base_addr,

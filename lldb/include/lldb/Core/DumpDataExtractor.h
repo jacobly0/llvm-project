@@ -15,6 +15,10 @@
 #include <cstddef>
 #include <cstdint>
 
+namespace llvm {
+struct fltSemantics;
+}
+
 namespace lldb_private {
 class DataExtractor;
 class ExecutionContextScope;
@@ -85,6 +89,9 @@ class Stream;
 ///     If exe_scope and base_addr are valid, include memory tags
 ///     in the output. This does not apply to certain formats.
 ///
+/// \param[in] flt_semantics
+///     Float semantics to use when dumping floats.
+///
 /// \return
 ///     The offset at which dumping ended.
 lldb::offset_t
@@ -93,7 +100,8 @@ DumpDataExtractor(const DataExtractor &DE, Stream *s, lldb::offset_t offset,
                   size_t item_count, size_t num_per_line, uint64_t base_addr,
                   uint32_t item_bit_size, uint32_t item_bit_offset,
                   ExecutionContextScope *exe_scope = nullptr,
-                  bool show_memory_tags = false);
+                  bool show_memory_tags = false,
+                  const llvm::fltSemantics *flt_semantics = nullptr);
 
 void DumpHexBytes(Stream *s, const void *src, size_t src_len,
                   uint32_t bytes_per_line, lldb::addr_t base_addr);

@@ -358,6 +358,7 @@ public:
 
   // Subclasses must implement the functions below.
   virtual std::optional<uint64_t> GetByteSize() = 0;
+  virtual std::optional<uint64_t> GetBitSize() = 0;
 
   virtual lldb::ValueType GetValueType() const = 0;
 
@@ -421,6 +422,8 @@ public:
 
   virtual lldb::offset_t GetByteOffset() { return 0; }
 
+  virtual lldb::offset_t GetBitOffset() { return 0; }
+
   virtual uint32_t GetBitfieldBitSize() { return 0; }
 
   virtual uint32_t GetBitfieldBitOffset() { return 0; }
@@ -452,6 +455,8 @@ public:
   /// If the current ValueObject is of an appropriate type, convert the
   /// value to a boolean and return that. Otherwise return an error.
   llvm::Expected<bool> GetValueAsBool();
+
+  virtual CompilerType GetValueAsCompilerType() { return CompilerType(); }
 
   /// Update an existing integer ValueObject with a new integer value. This
   /// is only intended to be used with 'temporary' ValueObjects, i.e. ones that
@@ -632,7 +637,7 @@ public:
   virtual void SetLiveAddress(lldb::addr_t addr = LLDB_INVALID_ADDRESS,
                               AddressType address_type = eAddressTypeLoad) {}
 
-  lldb::ValueObjectSP Cast(const CompilerType &compiler_type);
+  virtual lldb::ValueObjectSP Cast(const CompilerType &compiler_type);
 
   virtual lldb::ValueObjectSP DoCast(const CompilerType &compiler_type);
 

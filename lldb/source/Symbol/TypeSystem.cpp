@@ -119,7 +119,8 @@ CompilerType TypeSystem::GetBuiltinTypeByName(ConstString name) {
   return CompilerType();
 }
 
-CompilerType TypeSystem::GetTypeForFormatters(void *type) {
+CompilerType
+TypeSystem::GetTypeForFormatters(lldb::opaque_compiler_type_t type) {
   return CompilerType(weak_from_this(), type);
 }
 
@@ -149,11 +150,13 @@ TypeSystem::GetIntegralTemplateArgument(opaque_compiler_type_t type, size_t idx,
   return std::nullopt;
 }
 
-LazyBool TypeSystem::ShouldPrintAsOneLiner(void *type, ValueObject *valobj) {
+LazyBool TypeSystem::ShouldPrintAsOneLiner(opaque_compiler_type_t type,
+                                           ValueObject *valobj) {
   return eLazyBoolCalculate;
 }
 
-bool TypeSystem::IsMeaninglessWithoutDynamicResolution(void *type) {
+bool TypeSystem::IsMeaninglessWithoutDynamicResolution(
+    opaque_compiler_type_t type) {
   return false;
 }
 

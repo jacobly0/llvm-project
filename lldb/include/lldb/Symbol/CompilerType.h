@@ -45,7 +45,7 @@ public:
                lldb::opaque_compiler_type_t type);
 
   /// This is a minimal wrapper of a TypeSystem shared pointer as
-  /// returned by CompilerType which conventien dyn_cast support.
+  /// returned by CompilerType with convenient dyn_cast support.
   class TypeSystemSPWrapper {
     lldb::TypeSystemSP m_typesystem_sp;
 
@@ -54,19 +54,26 @@ public:
     TypeSystemSPWrapper(lldb::TypeSystemSP typesystem_sp)
         : m_typesystem_sp(typesystem_sp) {}
 
-    template <class TypeSystemType> bool isa_and_nonnull() {
+    template <class TypeSystemType> bool isa_and_present() {
       if (auto *ts = m_typesystem_sp.get())
         return llvm::isa<TypeSystemType>(ts);
       return false;
     }
+    template <class TypeSystemType> bool isa_and_nonnull() {
+      return isa_and_present<TypeSystemType>();
+    }
 
     /// Return a shared_ptr<TypeSystemType> if dyn_cast succeeds.
     template <class TypeSystemType>
-    std::shared_ptr<TypeSystemType> dyn_cast_or_null() {
-      if (isa_and_nonnull<TypeSystemType>())
+    std::shared_ptr<TypeSystemType> dyn_cast_if_present() {
+      if (isa_and_present<TypeSystemType>())
         return std::shared_ptr<TypeSystemType>(
             m_typesystem_sp, llvm::cast<TypeSystemType>(m_typesystem_sp.get()));
       return nullptr;
+    }
+    template <class TypeSystemType>
+    std::shared_ptr<TypeSystemType> dyn_cast_or_null() {
+      return dyn_cast_if_present<TypeSystemType>();
     }
 
     explicit operator bool() const {
@@ -441,8 +448,8 @@ public:
   llvm::Expected<CompilerType> GetChildCompilerTypeAtIndex(
       ExecutionContext *exe_ctx, size_t idx, bool transparent_pointers,
       bool omit_empty_base_classes, bool ignore_array_bounds,
-      std::string &child_name, uint32_t &child_byte_size,
-      int32_t &child_byte_offset, uint32_t &child_bitfield_bit_size,
+      std::string &child_name, uint64_t &child_bit_size,
+      int64_t &child_bit_offset, uint32_t &child_bitfield_bit_size,
       uint32_t &child_bitfield_bit_offset, bool &child_is_base_class,
       bool &child_is_deref_of_parent, ValueObject *valobj,
       uint64_t &language_flags) const;
@@ -463,7 +470,13 @@ public:
                                 bool omit_empty_base_classes,
                                 std::vector<uint32_t> &child_indexes) const;
 
+  ValueObject *GetStringPointer(ValueObject *valobj, size_t *length = nullptr,
+                                char *terminator = nullptr) const;
+
   CompilerType GetDirectNestedTypeWithName(llvm::StringRef name) const;
+
+  lldb::ValueObjectSP
+  CreateValueFromType(ExecutionContextScope *exe_scope) const;
 
   /// Return the number of template arguments the type has.
   /// If expand_pack is true, then variadic argument packs are automatically

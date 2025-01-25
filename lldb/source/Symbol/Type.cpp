@@ -274,9 +274,10 @@ Type *SymbolFileType::GetType() {
 }
 
 Type::Type(lldb::user_id_t uid, SymbolFile *symbol_file, ConstString name,
-           std::optional<uint64_t> byte_size, SymbolContextScope *context,
-           user_id_t encoding_uid, EncodingDataType encoding_uid_type,
-           const Declaration &decl, const CompilerType &compiler_type,
+           std::optional<uint64_t> byte_size, std::optional<uint64_t> bit_size,
+           SymbolContextScope *context, user_id_t encoding_uid,
+           EncodingDataType encoding_uid_type, const Declaration &decl,
+           const CompilerType &compiler_type,
            ResolveState compiler_type_resolve_state, uint32_t opaque_payload)
     : std::enable_shared_from_this<Type>(), UserID(uid), m_name(name),
       m_symbol_file(symbol_file), m_context(context),
@@ -292,6 +293,13 @@ Type::Type(lldb::user_id_t uid, SymbolFile *symbol_file, ConstString name,
     m_byte_size = 0;
     m_byte_size_has_value = false;
   }
+  if (bit_size) {
+    m_bit_size = *bit_size;
+    m_bit_size_has_value = true;
+  } else {
+    m_bit_size = 0;
+    m_bit_size_has_value = false;
+  }
 }
 
 Type::Type()
@@ -299,6 +307,8 @@ Type::Type()
       m_payload(0) {
   m_byte_size = 0;
   m_byte_size_has_value = false;
+  m_bit_size = 0;
+  m_bit_size_has_value = false;
 }
 
 void Type::GetDescription(Stream *s, lldb::DescriptionLevel level,
@@ -486,17 +496,65 @@ std::optional<uint64_t> Type::GetByteSize(ExecutionContextScope *exe_scope) {
     }
   } break;
 
-    // If we are a pointer or reference, then this is just a pointer size;
-    case eEncodingIsPointerUID:
-    case eEncodingIsLValueReferenceUID:
-    case eEncodingIsRValueReferenceUID:
-    case eEncodingIsLLVMPtrAuthUID: {
-      if (ArchSpec arch = m_symbol_file->GetObjectFile()->GetArchitecture()) {
-        m_byte_size = arch.GetAddressByteSize();
-        m_byte_size_has_value = true;
-        return static_cast<uint64_t>(m_byte_size);
+  // If we are a pointer or reference, then this is just a pointer size;
+  case eEncodingIsPointerUID:
+  case eEncodingIsLValueReferenceUID:
+  case eEncodingIsRValueReferenceUID:
+  case eEncodingIsLLVMPtrAuthUID: {
+    if (ArchSpec arch = m_symbol_file->GetObjectFile()->GetArchitecture()) {
+      m_byte_size = arch.GetAddressByteSize();
+      m_byte_size_has_value = true;
+      m_bit_size = m_byte_size * 8;
+      m_bit_size_has_value = true;
+      return static_cast<uint64_t>(m_byte_size);
+    }
+  } break;
+  }
+  return {};
+}
+std::optional<uint64_t> Type::GetBitSize(ExecutionContextScope *exe_scope) {
+  if (m_bit_size_has_value)
+    return m_bit_size;
+
+  switch (m_encoding_uid_type) {
+  case eEncodingInvalid:
+  case eEncodingIsSyntheticUID:
+    break;
+  case eEncodingIsUID:
+  case eEncodingIsConstUID:
+  case eEncodingIsRestrictUID:
+  case eEncodingIsVolatileUID:
+  case eEncodingIsAtomicUID:
+  case eEncodingIsTypedefUID: {
+    Type *encoding_type = GetEncodingType();
+    if (encoding_type)
+      if (std::optional<uint64_t> size = encoding_type->GetBitSize(exe_scope)) {
+        m_bit_size = *size;
+        m_bit_size_has_value = true;
+        return m_bit_size;
       }
-    } break;
+
+    if (std::optional<uint64_t> size =
+            GetLayoutCompilerType().GetBitSize(exe_scope)) {
+      m_bit_size = *size;
+      m_bit_size_has_value = true;
+      return m_bit_size;
+    }
+  } break;
+
+  // If we are a pointer or reference, then this is just a pointer size;
+  case eEncodingIsPointerUID:
+  case eEncodingIsLValueReferenceUID:
+  case eEncodingIsRValueReferenceUID:
+  case eEncodingIsLLVMPtrAuthUID: {
+    if (ArchSpec arch = m_symbol_file->GetObjectFile()->GetArchitecture()) {
+      m_byte_size = arch.GetAddressByteSize();
+      m_byte_size_has_value = true;
+      m_bit_size = m_byte_size * 8;
+      m_bit_size_has_value = true;
+      return m_bit_size;
+    }
+  } break;
   }
   return {};
 }
