@@ -37,6 +37,13 @@ Z80FrameLowering::Z80FrameLowering(const Z80Subtarget &STI)
 /// pointer register.  This is true if the function has variable sized allocas
 /// or if frame pointer elimination is disabled.
 bool Z80FrameLowering::hasFP(const MachineFunction &MF) const {
+  if (STI.isZZ80()) {
+    // On ZZ80, we can use SP-relative addressing, so only need FP for:
+    // - Variable-sized stack objects (alloca)
+    // - Explicitly disabled frame pointer elimination
+    return MF.getTarget().Options.DisableFramePointerElim(MF) ||
+           MF.getFrameInfo().hasVarSizedObjects();
+  }
   return MF.getTarget().Options.DisableFramePointerElim(MF) ||
          MF.getFrameInfo().hasStackObjects();
 }
@@ -107,14 +114,19 @@ Z80FrameLowering::getOptimalStackAdjustmentMethod(MachineFunction &MF,
 
   // Optimal for large offsets
   unsigned LargeCost = 0;
-  //   LD <scratch>, Offset
-  LargeCost += OptSize || HasEZ80Ops ? 1 + SlotSize : 10;
-  //   ADD <scratch>, SP
-  LargeCost += OptSize || HasEZ80Ops ? 1 : 11;
+  if (!Is24Bit && STI.hasLDA() && !ScratchIsIndex) {
+    //   LDA HL,(SP+Offset) — replaces LD+ADD
+    LargeCost += OptSize ? 4 : 10;
+  } else {
+    //   LD <scratch>, Offset
+    LargeCost += OptSize || HasEZ80Ops ? 1 + SlotSize : 10;
+    //   ADD <scratch>, SP
+    LargeCost += OptSize || HasEZ80Ops ? 1 : 11;
+    if (ScratchIsIndex)
+      LargeCost += OptSize || HasEZ80Ops ? 3 : 12;
+  }
   //   LD SP, <scratch>
   LargeCost += OptSize || HasEZ80Ops ? 1 : 6;
-  if (ScratchIsIndex)
-    LargeCost += OptSize || HasEZ80Ops ? 3 : 12;
 
   return LargeCost < BestCost ? SAM_Large : BestMethod;
 }
@@ -167,15 +179,22 @@ void Z80FrameLowering::BuildStackAdjustment(
     ResultReg = ScratchReg;
     break;
   case SAM_Large:
-    BuildMI(MBB, MBBI, DL, TII.get(Is24Bit ? Z80::LD24ri : Z80::LD16ri),
-            ScratchReg)
-        .addImm(Offset)
-        .setMIFlag(Flag);
-    BuildMI(MBB, MBBI, DL, TII.get(Is24Bit ? Z80::ADD24as : Z80::ADD16as),
-            ScratchReg)
-        .addReg(ScratchReg)
-        .setMIFlag(Flag)
-        ->addRegisterDead(Z80::F, TRI);
+    if (!Is24Bit && STI.hasLDA() && ScratchReg == Z80::HL) {
+      // LDA HL,(SP+Offset) — single instruction replaces LD+ADD
+      BuildMI(MBB, MBBI, DL, TII.get(Z80::LDA16hs_sp))
+          .addImm(Offset)
+          .setMIFlag(Flag);
+    } else {
+      BuildMI(MBB, MBBI, DL, TII.get(Is24Bit ? Z80::LD24ri : Z80::LD16ri),
+              ScratchReg)
+          .addImm(Offset)
+          .setMIFlag(Flag);
+      BuildMI(MBB, MBBI, DL, TII.get(Is24Bit ? Z80::ADD24as : Z80::ADD16as),
+              ScratchReg)
+          .addReg(ScratchReg)
+          .setMIFlag(Flag)
+          ->addRegisterDead(Z80::F, TRI);
+    }
     ResultReg = ScratchReg;
     break;
   }
@@ -414,7 +433,12 @@ bool Z80FrameLowering::assignCalleeSavedSpillSlots(
     MachineFunction &MF, const TargetRegisterInfo *TRI,
     std::vector<CalleeSavedInfo> &CSI) const {
   auto &FuncInfo = *MF.getInfo<Z80MachineFunctionInfo>();
-  FuncInfo.setUsesAltFP(shouldUseAltFP(MF, Is24Bit ? Z80::UIY : Z80::IY, TRI));
+  // ZZ80 without FP doesn't need the alt-FP optimization.
+  if (STI.isZZ80() && !hasFP(MF))
+    FuncInfo.setUsesAltFP(Z80MachineFunctionInfo::AFPM_None);
+  else
+    FuncInfo.setUsesAltFP(
+        shouldUseAltFP(MF, Is24Bit ? Z80::UIY : Z80::IY, TRI));
   MF.getRegInfo().freezeReservedRegs(MF);
 
   bool UseShadow = shouldUseShadow(MF);
@@ -512,14 +536,25 @@ void Z80FrameLowering::processFunctionBeforeFrameFinalized(
     MachineFunction &MF, RegScavenger *RS) const {
   MachineFrameInfo &MFI = MF.getFrameInfo();
   MFI.setMaxCallFrameSize(0); // call frames are not implemented yet
-  if (MF.getInfo<Z80MachineFunctionInfo>()->getHasIllegalLEA() ||
-      MFI.estimateStackSize(MF) > 0x80 - 2) {
+  bool NeedsScavSlot = MF.getInfo<Z80MachineFunctionInfo>()->getHasIllegalLEA()
+                    || MFI.estimateStackSize(MF) > 0x80 - 2;
+  // ZZ80 without FP always needs a scavenging slot for SP-relative access.
+  if (!NeedsScavSlot && STI.isZZ80() && !hasFP(MF))
+    NeedsScavSlot = true;
+  if (NeedsScavSlot) {
     int64_t MinFixedObjOffset = -int64_t(SlotSize);
     for (int I = MFI.getObjectIndexBegin(); I < 0; ++I)
       MinFixedObjOffset = std::min(MinFixedObjOffset, MFI.getObjectOffset(I));
     int FI = MFI.CreateFixedSpillStackObject(
         SlotSize, MinFixedObjOffset - SlotSize * (1 + isFPSaved(MF)));
     RS->addScavengingFrameIndex(FI);
+    // ZZ80 SP-relative: may need a second slot when multiple frame accesses
+    // need scratch registers simultaneously in the same basic block.
+    if (STI.isZZ80() && !hasFP(MF)) {
+      int FI2 = MFI.CreateFixedSpillStackObject(
+          SlotSize, MinFixedObjOffset - SlotSize * (2 + isFPSaved(MF)));
+      RS->addScavengingFrameIndex(FI2);
+    }
   }
 
   // Emit extra CFI_INSTRUCTION as necessary.

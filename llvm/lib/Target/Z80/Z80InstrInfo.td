@@ -141,6 +141,45 @@ def HaveIdxHalf  : Predicate<"Subtarget->hasIndexHalfRegs()">,
 def HaveSliOp    : Predicate<"Subtarget->hasSliOp()">,
                    AssemblerPredicate<(all_of FeatureSli), "SLI op">;
 
+// ZZ80 predicates
+def HaveHWMul      : Predicate<"Subtarget->hasHWMul()">,
+                     AssemblerPredicate<(all_of FeatureHWMul), "HW multiply">;
+def HaveHWMulW     : Predicate<"Subtarget->hasHWMulW()">,
+                     AssemblerPredicate<(all_of FeatureHWMulW),
+                                        "HW 16-bit multiply">;
+def HaveHWDiv      : Predicate<"Subtarget->hasHWDiv()">,
+                     AssemblerPredicate<(all_of FeatureHWDiv), "HW divide">;
+def HaveHWDivW     : Predicate<"Subtarget->hasHWDivW()">,
+                     AssemblerPredicate<(all_of FeatureHWDivW),
+                                        "HW 16-bit divide">;
+def HaveSPRelative : Predicate<"Subtarget->hasSPRelative()">,
+                     AssemblerPredicate<(all_of FeatureSPRelative),
+                                        "SP-relative addressing">;
+def HavePCRelative : Predicate<"Subtarget->hasPCRelative()">,
+                     AssemblerPredicate<(all_of FeaturePCRelative),
+                                        "PC-relative addressing">;
+def HaveBaseIndex  : Predicate<"Subtarget->hasBaseIndex()">,
+                     AssemblerPredicate<(all_of FeatureBaseIndex),
+                                        "base+index addressing">;
+def Have16BitALU   : Predicate<"Subtarget->has16BitALU()">,
+                     AssemblerPredicate<(all_of Feature16BitALU),
+                                        "16-bit ALU ops">;
+def HaveEXTS       : Predicate<"Subtarget->hasEXTS()">,
+                     AssemblerPredicate<(all_of FeatureEXTS),
+                                        "sign extension ops">;
+def HaveLDA        : Predicate<"Subtarget->hasLDA()">,
+                     AssemblerPredicate<(all_of FeatureLDA),
+                                        "load address op">;
+def HaveEXReg      : Predicate<"Subtarget->hasEXReg()">,
+                     AssemblerPredicate<(all_of FeatureEXReg),
+                                        "extended register exchange">;
+def HaveCoroutine  : Predicate<"Subtarget->hasCoroutine()">,
+                     AssemblerPredicate<(all_of FeatureCoroutine),
+                                        "hardware coroutines">;
+def HaveLDw        : Predicate<"Subtarget->hasLDw()">,
+                     AssemblerPredicate<(all_of FeatureLDw),
+                                        "16-bit indexed load/store">;
+
 //===----------------------------------------------------------------------===//
 // Z80 Instruction Format Definitions.
 //===----------------------------------------------------------------------===//
@@ -1109,12 +1148,272 @@ def MLT16s : I16<EDPre, 0x7C, "mlt", "\tsp", "", (outs), (ins)>,
              Requires<[HaveZ180Ops]>;
 let Defs = [SPL], Uses = [SPL] in
 def MLT24s : I24<EDPre, 0x7C, "mlt", "\tsp", "", (outs), (ins)>;
-def : Pat<(i8 (mul R8:$op1, R8:$op2)),
-          (EXTRACT_SUBREG (MLT16r (REG_SEQUENCE G16, R8:$op1, sub_high,
-                                                     R8:$op2, sub_low)),
-                          sub_low)>;
-def : Pat<(i16 (mul (zext R8:$op1), (zext R8:$op2))),
-          (MLT16r (REG_SEQUENCE G16, R8:$op1, sub_high, R8:$op2, sub_low))>;
+let Predicates = [HaveZ180Ops] in {
+  def : Pat<(i8 (mul R8:$op1, R8:$op2)),
+            (EXTRACT_SUBREG (MLT16r (REG_SEQUENCE G16, R8:$op1, sub_high,
+                                                       R8:$op2, sub_low)),
+                            sub_low)>;
+  def : Pat<(i16 (mul (zext R8:$op1), (zext R8:$op2))),
+            (MLT16r (REG_SEQUENCE G16, R8:$op1, sub_high, R8:$op2, sub_low))>;
+}
+
+//===----------------------------------------------------------------------===//
+// ZZ80 Multiply/Divide Instructions.
+//===----------------------------------------------------------------------===//
+
+// MULT A,r — signed 8x8→16, A * r → HL
+// MULTU A,r — unsigned 8x8→16, A * r → HL
+let Defs = [HL, F], Uses = [A] in {
+  def MULT8ar  : I<EDPre, 0xC0, "mult",  "\ta, $src", "",
+                   (outs), (ins R8:$src), []>,
+                 Requires<[HaveHWMul]>;
+  def MULTU8ar : I<EDPre, 0xC1, "multu", "\ta, $src", "",
+                   (outs), (ins R8:$src), []>,
+                 Requires<[HaveHWMul]>;
+}
+
+// MULTW HL,rr — signed 16x16→32, HL * rr → DE:HL
+// MULTUW HL,rr — unsigned 16x16→32, HL * rr → DE:HL
+let Defs = [DE, HL, F], Uses = [HL] in {
+  def MULTW16ar  : I<EDPre, 0xC2, "multw",  "\thl, $src", "",
+                     (outs), (ins O16:$src), []>,
+                   Requires<[HaveHWMulW]>;
+  def MULTUW16ar : I<EDPre, 0xC3, "multuw", "\thl, $src", "",
+                     (outs), (ins O16:$src), []>,
+                   Requires<[HaveHWMulW]>;
+}
+
+// DIV HL,r — signed 16÷8, L = quotient, H = remainder
+// DIVU HL,r — unsigned 16÷8
+let Defs = [HL, F], Uses = [HL] in {
+  def DIV16r  : I<EDPre, 0xC4, "div",  "\thl, $src", "",
+                  (outs), (ins R8:$src), []>,
+                Requires<[HaveHWDiv]>;
+  def DIVU16r : I<EDPre, 0xC5, "divu", "\thl, $src", "",
+                  (outs), (ins R8:$src), []>,
+                Requires<[HaveHWDiv]>;
+}
+
+// DIVW DEHL,rr — signed 32÷16, HL = quotient, DE = remainder
+// DIVUW DEHL,rr — unsigned 32÷16
+let Defs = [DE, HL, F], Uses = [DE, HL] in {
+  def DIVW16ar  : I<EDPre, 0xCA, "divw",  "\tdehl, $src", "",
+                    (outs), (ins O16:$src), []>,
+                  Requires<[HaveHWDivW]>;
+  def DIVUW16ar : I<EDPre, 0xCB, "divuw", "\tdehl, $src", "",
+                    (outs), (ins O16:$src), []>,
+                  Requires<[HaveHWDivW]>;
+}
+
+//===----------------------------------------------------------------------===//
+// ZZ80 16-bit ALU Instructions.
+//===----------------------------------------------------------------------===//
+
+// SUBw HL,rr — 16-bit subtract without carry, sets all flags
+// AddedComplexity = 2 to prefer over Sub16ao pseudo when available
+let Defs = [HL, F], Uses = [HL] in {
+  let AddedComplexity = 2 in
+  def SUBw16ar : I<EDPre, 0x96, "subw", "\thl, $src", "",
+                   (outs), (ins O16:$src),
+                   [(set HL, F, (Z80sub_flag HL, O16:$src))]>,
+                 Requires<[Have16BitALU]>;
+
+  // NEGw HL — 16-bit negate
+  def NEGw16 : I<EDPre, 0x8C, "negw", "\thl", "",
+                 (outs), (ins), [(set HL, (ineg HL))]>,
+               Requires<[Have16BitALU]>;
+}
+
+// CPw HL,rr — 16-bit compare (HL unchanged, only flags set)
+// AddedComplexity = 2 to prefer over Cmp16ao pseudo when available
+let Defs = [F], Uses = [HL] in {
+  let AddedComplexity = 2 in
+  def CPw16ar : I<EDPre, 0xA6, "cpw", "\thl, $src", "",
+                  (outs), (ins O16:$src),
+                  [(set F, (Z80cp_flag HL, O16:$src))]>,
+                Requires<[Have16BitALU]>;
+}
+
+// Plain sub/subc patterns for GlobalISel matching (prefer SUBw over Sub16ao)
+let Predicates = [Have16BitALU], AddedComplexity = 2 in {
+  def : Pat<(sub  HL, O16:$src), (SUBw16ar O16:$src)>;
+  def : Pat<(subc HL, O16:$src), (SUBw16ar O16:$src)>;
+}
+
+//===----------------------------------------------------------------------===//
+// ZZ80 Sign Extension Instructions.
+//===----------------------------------------------------------------------===//
+
+// EXTS A — sign-extend A into HL (HL = sext(A))
+let Defs = [HL], Uses = [A] in
+def EXTS8 : I<EDPre, 0x64, "exts", "\ta", "",
+              (outs), (ins), []>,
+            Requires<[HaveEXTS]>;
+
+// EXTSw HL — sign-extend HL into DE:HL (DE:HL = sext(HL))
+let Defs = [DE, HL], Uses = [HL] in
+def EXTSw16 : I<EDPre, 0x6C, "extsw", "\thl", "",
+                (outs), (ins), []>,
+              Requires<[HaveEXTS]>;
+
+//===----------------------------------------------------------------------===//
+// ZZ80 Coroutine Instructions (RAISE / LDPC).
+//===----------------------------------------------------------------------===//
+
+// RAISE n — cooperative context switch to task n (DD C7+n*8)
+// Clobbers caller-saved registers (context may change on return).
+let hasSideEffects = true, Defs = [A, F, HL, DE, BC] in {
+  def RAISE_0 : I<Idx0Pre, 0xC7, "raise", "\t0">, Requires<[HaveCoroutine]>;
+  def RAISE_1 : I<Idx0Pre, 0xCF, "raise", "\t1">, Requires<[HaveCoroutine]>;
+  def RAISE_2 : I<Idx0Pre, 0xD7, "raise", "\t2">, Requires<[HaveCoroutine]>;
+  def RAISE_3 : I<Idx0Pre, 0xDF, "raise", "\t3">, Requires<[HaveCoroutine]>;
+  def RAISE_4 : I<Idx0Pre, 0xE7, "raise", "\t4">, Requires<[HaveCoroutine]>;
+  def RAISE_5 : I<Idx0Pre, 0xEF, "raise", "\t5">, Requires<[HaveCoroutine]>;
+  def RAISE_6 : I<Idx0Pre, 0xF7, "raise", "\t6">, Requires<[HaveCoroutine]>;
+  def RAISE_7 : I<Idx0Pre, 0xFF, "raise", "\t7">, Requires<[HaveCoroutine]>;
+}
+
+// LDPC n,HL — load program counter of task n from HL (FD C7+n*8)
+let hasSideEffects = true, Uses = [HL] in {
+  def LDPC_0 : I<Idx1Pre, 0xC7, "ldpc", "\t0, hl">, Requires<[HaveCoroutine]>;
+  def LDPC_1 : I<Idx1Pre, 0xCF, "ldpc", "\t1, hl">, Requires<[HaveCoroutine]>;
+  def LDPC_2 : I<Idx1Pre, 0xD7, "ldpc", "\t2, hl">, Requires<[HaveCoroutine]>;
+  def LDPC_3 : I<Idx1Pre, 0xDF, "ldpc", "\t3, hl">, Requires<[HaveCoroutine]>;
+  def LDPC_4 : I<Idx1Pre, 0xE7, "ldpc", "\t4, hl">, Requires<[HaveCoroutine]>;
+  def LDPC_5 : I<Idx1Pre, 0xEF, "ldpc", "\t5, hl">, Requires<[HaveCoroutine]>;
+  def LDPC_6 : I<Idx1Pre, 0xF7, "ldpc", "\t6, hl">, Requires<[HaveCoroutine]>;
+  def LDPC_7 : I<Idx1Pre, 0xFF, "ldpc", "\t7, hl">, Requires<[HaveCoroutine]>;
+}
+
+//===----------------------------------------------------------------------===//
+// ZZ80 16-bit Indexed Load/Store Instructions (LDw).
+//===----------------------------------------------------------------------===//
+
+// LDw rp,(HL) / LDw rp,(IX/IY+d) — 16-bit indexed/indirect load
+let mayLoad = true in {
+  def LDW16rp : I <Pre<Idx1Pre, EDPre>, 0x06, "ldw", "\t$dst, $src", "",
+                   (outs R16:$dst), (ins aptr:$src)>,
+                Requires<[HaveLDw]>;
+  def LDW16ro : Io<Pre<Idx1Pre, EDPre>, 0x06, "ldw", "\t$dst, $src", "",
+                   (outs R16:$dst), (ins off:$src)>,
+                Requires<[HaveLDw]>;
+}
+// LDw (HL),rp / LDw (IX/IY+d),rp — 16-bit indexed/indirect store
+let mayStore = true in {
+  def LDW16pr : I <Pre<Idx0Pre, EDPre>, 0x0E, "ldw", "\t$dst, $src", "",
+                   (outs), (ins aptr:$dst, R16:$src)>,
+                Requires<[HaveLDw]>;
+  def LDW16or : Io<Pre<Idx0Pre, EDPre>, 0x0E, "ldw", "\t$dst, $src", "",
+                   (outs), (ins off:$dst, R16:$src)>,
+                Requires<[HaveLDw]>;
+}
+
+// LDw rp,(nn) — 16-bit absolute memory load (same encoding as Z80, mnemonic ldw)
+let mayLoad = true, canFoldAsLoad = true in {
+  def LDW16am : I16i<Idx0Pre, 0x2A, "ldw", "\t$dst, $src", "",
+                     (outs A16:$dst), (ins mem:$src)>,
+                Requires<[HaveLDw]>;
+  def LDW16gm : I16i<  EDPre, 0x4B, "ldw", "\t$dst, $src", "",
+                     (outs G16:$dst), (ins mem:$src)>,
+                Requires<[HaveLDw]>;
+}
+// LDw (nn),rp — 16-bit absolute memory store (same encoding as Z80, mnemonic ldw)
+let mayStore = true in {
+  def LDW16ma : I16i<Idx1Pre, 0x22, "ldw", "\t$dst, $src", "",
+                     (outs), (ins mem:$dst, A16:$src)>,
+                Requires<[HaveLDw]>;
+  def LDW16mg : I16i<  EDPre, 0x43, "ldw", "\t$dst, $src", "",
+                     (outs), (ins mem:$dst, G16:$src)>,
+                Requires<[HaveLDw]>;
+}
+
+//===----------------------------------------------------------------------===//
+// ZZ80 SP-Relative Addressing Instructions.
+//===----------------------------------------------------------------------===//
+
+// 8-bit load: LD r,(SP+dd) — any G8 register from SP-relative address
+// Encoding: DD (0x40+r*8) dd dd
+let mayLoad = true, Uses = [SPS] in
+def LD8gs_sp : Ii<Idx0Pre, 0x40, "ld", "\t$dst, (sp+$off)", "",
+                  (outs G8:$dst), (ins i16imm:$off), []>,
+               Requires<[HaveSPRelative]>;
+
+// 8-bit store: LD (SP+dd),A — store A to SP-relative address
+// Encoding: ED 03 dd dd
+let mayStore = true, Uses = [A, SPS] in
+def LD8sa_sp : Ii<EDPre, 0x03, "ld", "\t(sp+$off), a", "",
+                  (outs), (ins i16imm:$off), []>,
+               Requires<[HaveSPRelative]>;
+
+// 8-bit store immediate: LD (SP+dd),n — store immediate byte
+// Encoding: DD 06 dd dd nn
+let mayStore = true, Uses = [SPS] in
+def LD8si_sp : Ioi<Idx0Pre, 0x06, "ld", "\t(sp+$off), $src", "",
+                   (outs), (ins i16imm:$off, i8imm:$src), []>,
+               Requires<[HaveSPRelative]>;
+
+// 16-bit load: LDw HL,(SP+dd) — load word to HL
+// Encoding: ED 04 dd dd
+let mayLoad = true, Defs = [HL], Uses = [SPS] in
+def LD16hs_sp : Ii<EDPre, 0x04, "ldw", "\thl, (sp+$off)", "",
+                   (outs), (ins i16imm:$off), []>,
+                Requires<[HaveSPRelative]>;
+
+// 16-bit store: LDw (SP+dd),HL — store word from HL
+// Encoding: ED 05 dd dd
+let mayStore = true, Uses = [HL, SPS] in
+def LD16sh_sp : Ii<EDPre, 0x05, "ldw", "\t(sp+$off), hl", "",
+                   (outs), (ins i16imm:$off), []>,
+                Requires<[HaveSPRelative]>;
+
+// Load Effective Address: LDA HL,(SP+dd) — compute SP+dd into HL
+// Encoding: ED 02 dd dd
+let Defs = [HL], Uses = [SPS] in
+def LDA16hs_sp : Ii<EDPre, 0x02, "lda", "\thl, (sp+$off)", "",
+                    (outs), (ins i16imm:$off), []>,
+                 Requires<[HaveSPRelative]>;
+
+// 8-bit ALU with SP-relative operand: OP A,(SP+dd)
+// Encoding: DD opcode dd dd
+let mayLoad = true, Uses = [A, SPS], Defs = [A, F] in {
+  def ADD8as_sp : Ii<Idx0Pre, 0x80, "add", "\ta, (sp+$off)", "",
+                     (outs), (ins i16imm:$off), []>,
+                  Requires<[HaveSPRelative]>;
+  def ADC8as_sp : Ii<Idx0Pre, 0x88, "adc", "\ta, (sp+$off)", "",
+                     (outs), (ins i16imm:$off), []>,
+                  Requires<[HaveSPRelative]>;
+  def SUB8as_sp : Ii<Idx0Pre, 0x90, "sub", "\ta, (sp+$off)", "",
+                     (outs), (ins i16imm:$off), []>,
+                  Requires<[HaveSPRelative]>;
+  def SBC8as_sp : Ii<Idx0Pre, 0x98, "sbc", "\ta, (sp+$off)", "",
+                     (outs), (ins i16imm:$off), []>,
+                  Requires<[HaveSPRelative]>;
+  def AND8as_sp : Ii<Idx0Pre, 0xA0, "and", "\ta, (sp+$off)", "",
+                     (outs), (ins i16imm:$off), []>,
+                  Requires<[HaveSPRelative]>;
+  def XOR8as_sp : Ii<Idx0Pre, 0xA8, "xor", "\ta, (sp+$off)", "",
+                     (outs), (ins i16imm:$off), []>,
+                  Requires<[HaveSPRelative]>;
+  def OR8as_sp  : Ii<Idx0Pre, 0xB0, "or",  "\ta, (sp+$off)", "",
+                     (outs), (ins i16imm:$off), []>,
+                  Requires<[HaveSPRelative]>;
+}
+// CP doesn't write A, only flags
+let mayLoad = true, Uses = [A, SPS], Defs = [F] in
+def CP8as_sp  : Ii<Idx0Pre, 0xB8, "cp",  "\ta, (sp+$off)", "",
+                   (outs), (ins i16imm:$off), []>,
+                Requires<[HaveSPRelative]>;
+
+// INC/DEC on SP-relative memory
+// Encoding: DD 04/05 dd dd
+let mayLoad = true, mayStore = true, Uses = [SPS], Defs = [F] in {
+  def INC8s_sp : Ii<Idx0Pre, 0x04, "inc", "\t(sp+$off)", "",
+                    (outs), (ins i16imm:$off), []>,
+                 Requires<[HaveSPRelative]>;
+  def DEC8s_sp : Ii<Idx0Pre, 0x05, "dec", "\t(sp+$off)", "",
+                    (outs), (ins i16imm:$off), []>,
+                 Requires<[HaveSPRelative]>;
+}
 
 //===----------------------------------------------------------------------===//
 // Port Instructions.

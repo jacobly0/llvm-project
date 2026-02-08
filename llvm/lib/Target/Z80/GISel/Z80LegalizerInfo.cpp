@@ -19,6 +19,7 @@
 #include "llvm/CodeGen/GlobalISel/MIPatternMatch.h"
 #include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
+#include "llvm/IR/IntrinsicsZ80.h"
 #include <functional>
 #include <initializer_list>
 using namespace llvm;
@@ -36,6 +37,11 @@ Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
   LegalityPredicate pred24Bit = [=](const LegalityQuery &) { return Is24Bit; };
 
   LegalityPredicate predZ180Ops = [this](const LegalityQuery &) { return Subtarget.hasZ180Ops(); };
+  LegalityPredicate predHWMul = [this](const LegalityQuery &) { return Subtarget.hasHWMul(); };
+  LegalityPredicate predHWMulW = [this](const LegalityQuery &) { return Subtarget.hasHWMulW(); };
+  LegalityPredicate predHWDiv = [this](const LegalityQuery &) { return Subtarget.hasHWDiv(); };
+  LegalityPredicate predHWDivW = [this](const LegalityQuery &) { return Subtarget.hasHWDivW(); };
+  LegalityPredicate predEXTS = [this](const LegalityQuery &) { return Subtarget.hasEXTS(); };
 
   std::array<LLT, 5> p;
   for (int AddrSpace = 0; AddrSpace != p.size(); ++AddrSpace)
@@ -118,6 +124,7 @@ Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
 
   getActionDefinitionsBuilder(G_SEXT)
       .legalForCartesianProduct(LegalScalars, {s1})
+      .legalIf(all(predEXTS, typeIs(0, s16), typeIs(1, s8)))
       .maxScalar(0, sMax)
       .maxScalar(0, s8)
       .maxScalar(1, s8);
@@ -169,6 +176,9 @@ Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
 
   getActionDefinitionsBuilder(G_MUL)
       .legalIf(all(predZ180Ops, typeIs(0, s8)))
+      .legalIf(all(predHWMul, typeIs(0, s8)))
+      .legalIf(all(predHWMulW, typeIs(0, s16)))
+      .customIf(all(predHWMulW, typeIs(0, s32)))
       .libcallFor(LegalLibcallScalars)
       .minScalar(0, s8)
       .minScalar(0, s16)
@@ -178,7 +188,13 @@ Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
       .minScalar(0, s64)
       .maxScalar(0, s32);
 
+  getActionDefinitionsBuilder(G_UMULH)
+      .legalIf(all(predHWMulW, typeIs(0, s16)))
+      .maxScalar(0, s16);
+
   getActionDefinitionsBuilder({G_SDIV, G_UDIV, G_SREM, G_UREM})
+      .legalIf(all(predHWDiv, typeIs(0, s8)))
+      .legalIf(all(predHWDivW, typeIs(0, s16)))
       .libcallFor(LegalLibcallScalars)
       .clampScalar(0, s8, s32);
 
@@ -292,7 +308,7 @@ Z80LegalizerInfo::Z80LegalizerInfo(const Z80Subtarget &STI,
 
   getActionDefinitionsBuilder(
       {G_SDIVREM, G_UDIVREM, G_ABS, G_DYN_STACKALLOC, G_SEXT_INREG, G_SMULO,
-       G_SMULH, G_UMULH, G_SMIN, G_SMAX, G_UMIN, G_UMAX, G_UADDSAT, G_SADDSAT,
+       G_SMULH, G_SMIN, G_SMAX, G_UMIN, G_UMAX, G_UADDSAT, G_SADDSAT,
        G_USUBSAT, G_SSUBSAT, G_USHLSAT, G_SSHLSAT, G_FPOWI})
       .lower();
 
@@ -329,6 +345,8 @@ LegalizerHelper::LegalizeResult Z80LegalizerInfo::legalizeCustomMaybeLegal(
   default:
     // No idea what to do.
     return LegalizerHelper::UnableToLegalize;
+  case G_MUL:
+    return legalizeMul(Helper, MI, LocObserver);
   case G_ADD:
   case G_SUB:
     return legalizeAddSub(Helper, MI, LocObserver);
@@ -396,6 +414,21 @@ Z80LegalizerInfo::legalizeAddSub(LegalizerHelper &Helper, MachineInstr &MI,
   if (mi_match(MI, MRI, m_Neg(m_Reg(LHSReg)))) {
     if (!F.hasOptSize() && LegalSize)
       return LegalizerHelper::Legalized;
+    if (Size == 32) {
+      // Inline i32 negate: USUBO/USUBE carry chain with zero LHS
+      MachineIRBuilder &MIRBuilder = Helper.MIRBuilder;
+      LLT s16 = LLT::scalar(16);
+      LLT s1 = LLT::scalar(1);
+      auto Zero = MIRBuilder.buildConstant(s16, 0);
+      auto Unmerge = MIRBuilder.buildUnmerge(s16, LHSReg);
+      auto Lo = MIRBuilder.buildInstr(G_USUBO, {s16, s1},
+                                       {Zero, Unmerge.getReg(0)});
+      auto Hi = MIRBuilder.buildInstr(G_USUBE, {s16, s1},
+                                       {Zero, Unmerge.getReg(1), Lo.getReg(1)});
+      MIRBuilder.buildMerge(DstReg, {Lo.getReg(0), Hi.getReg(0)});
+      MI.eraseFromParent();
+      return LegalizerHelper::Legalized;
+    }
     auto &Ctx = F.getContext();
     RTLIB::Libcall Libcall;
     switch (Size) {
@@ -404,9 +437,6 @@ Z80LegalizerInfo::legalizeAddSub(LegalizerHelper &Helper, MachineInstr &MI,
       break;
     case 24:
       Libcall = RTLIB::NEG_I24;
-      break;
-    case 32:
-      Libcall = RTLIB::NEG_I32;
       break;
     case 64:
       Libcall = RTLIB::NEG_I64;
@@ -422,7 +452,75 @@ Z80LegalizerInfo::legalizeAddSub(LegalizerHelper &Helper, MachineInstr &MI,
   }
   if (LegalSize)
     return LegalizerHelper::Legalized;
+  if (Size == 32) {
+    // Inline i32 add/sub: UADDO/UADDE or USUBO/USUBE carry chain
+    MachineIRBuilder &MIRBuilder = Helper.MIRBuilder;
+    LLT s16 = LLT::scalar(16);
+    LLT s1 = LLT::scalar(1);
+    Register Src1 = MI.getOperand(1).getReg();
+    Register Src2 = MI.getOperand(2).getReg();
+    auto UnmergeLHS = MIRBuilder.buildUnmerge(s16, Src1);
+    auto UnmergeRHS = MIRBuilder.buildUnmerge(s16, Src2);
+    if (MI.getOpcode() == G_ADD) {
+      auto Lo = MIRBuilder.buildInstr(G_UADDO, {s16, s1},
+                                       {UnmergeLHS.getReg(0), UnmergeRHS.getReg(0)});
+      auto Hi = MIRBuilder.buildInstr(G_UADDE, {s16, s1},
+                                       {UnmergeLHS.getReg(1), UnmergeRHS.getReg(1),
+                                        Lo.getReg(1)});
+      MIRBuilder.buildMerge(DstReg, {Lo.getReg(0), Hi.getReg(0)});
+    } else {
+      auto Lo = MIRBuilder.buildInstr(G_USUBO, {s16, s1},
+                                       {UnmergeLHS.getReg(0), UnmergeRHS.getReg(0)});
+      auto Hi = MIRBuilder.buildInstr(G_USUBE, {s16, s1},
+                                       {UnmergeLHS.getReg(1), UnmergeRHS.getReg(1),
+                                        Lo.getReg(1)});
+      MIRBuilder.buildMerge(DstReg, {Lo.getReg(0), Hi.getReg(0)});
+    }
+    MI.eraseFromParent();
+    return LegalizerHelper::Legalized;
+  }
   return Helper.libcall(MI, LocObserver);
+}
+
+LegalizerHelper::LegalizeResult
+Z80LegalizerInfo::legalizeMul(LegalizerHelper &Helper, MachineInstr &MI,
+                               LostDebugLocObserver &LocObserver) const {
+  MachineIRBuilder &MIRBuilder = Helper.MIRBuilder;
+  MachineRegisterInfo &MRI = *MIRBuilder.getMRI();
+
+  Register DstReg = MI.getOperand(0).getReg();
+  Register LHSReg = MI.getOperand(1).getReg();
+  Register RHSReg = MI.getOperand(2).getReg();
+  unsigned Size = MRI.getType(DstReg).getSizeInBits();
+
+  if (Size != 32 || !Subtarget.hasHWMulW())
+    return Helper.libcall(MI, LocObserver);
+
+  LLT s16 = LLT::scalar(16);
+
+  // Split i32 operands into i16 halves: {lo, hi}
+  auto UnmergeLHS = MIRBuilder.buildUnmerge(s16, LHSReg);  // a0, a1
+  auto UnmergeRHS = MIRBuilder.buildUnmerge(s16, RHSReg);  // b0, b1
+  Register a0 = UnmergeLHS.getReg(0), a1 = UnmergeLHS.getReg(1);
+  Register b0 = UnmergeRHS.getReg(0), b1 = UnmergeRHS.getReg(1);
+
+  // Full product a0*b0: low 16 in G_MUL, high 16 in G_UMULH
+  auto ProdLow  = MIRBuilder.buildMul(s16, a0, b0);
+  auto ProdHigh = MIRBuilder.buildInstr(TargetOpcode::G_UMULH, {s16}, {a0, b0});
+
+  // Cross products (only low 16 bits matter)
+  auto Cross1 = MIRBuilder.buildMul(s16, a1, b0);
+  auto Cross2 = MIRBuilder.buildMul(s16, a0, b1);
+
+  // Upper half = prodHigh + cross1 + cross2
+  auto Sum1 = MIRBuilder.buildAdd(s16, ProdHigh, Cross1);
+  auto Upper = MIRBuilder.buildAdd(s16, Sum1, Cross2);
+
+  // Merge {low, high} -> i32 result
+  MIRBuilder.buildMerge(DstReg, {ProdLow.getReg(0), Upper.getReg(0)});
+
+  MI.eraseFromParent();
+  return LegalizerHelper::Legalized;
 }
 
 LegalizerHelper::LegalizeResult
@@ -436,6 +534,10 @@ Z80LegalizerInfo::legalizeBitwise(LegalizerHelper &Helper, MachineInstr &MI,
   MachineRegisterInfo &MRI = *Helper.MIRBuilder.getMRI();
   Register DstReg = MI.getOperand(0).getReg();
   unsigned Size = MRI.getType(DstReg).getSizeInBits();
+  if (Size == 32)
+    if (Helper.narrowScalar(MI, 0, LLT::scalar(16)) ==
+        LegalizerHelper::Legalized)
+      return LegalizerHelper::Legalized;
   if (!OptSize && Size == 16)
     if (Helper.narrowScalar(MI, 0, LLT::scalar(8)) ==
         LegalizerHelper::Legalized)
@@ -544,6 +646,120 @@ Z80LegalizerInfo::legalizeShift(LegalizerHelper &Helper, MachineInstr &MI,
         (Ty == LLT::scalar(8) || Ty == LLT::scalar(16) ||
          (Subtarget.is24Bit() && Ty == LLT::scalar(24))))
       return LegalizerHelper::AlreadyLegal;
+
+    // Inline i32 shifts by constant amounts that decompose cleanly.
+    if (Ty == LLT::scalar(32)) {
+      MachineIRBuilder &MIRBuilder = Helper.MIRBuilder;
+      LLT s16 = LLT::scalar(16);
+      LLT s8 = LLT::scalar(8);
+      LLT s1 = LLT::scalar(1);
+      Register SrcReg = MI.getOperand(1).getReg();
+      unsigned ShAmt = Amt->Value.getZExtValue();
+
+      if (ShAmt >= 32) {
+        // Shift by >= 32: result is 0 or sign-extended
+        if (Opc == G_ASHR) {
+          auto Hi = MIRBuilder.buildUnmerge(s16, SrcReg).getReg(1);
+          auto Sign = MIRBuilder.buildAShr(s16, Hi,
+                          MIRBuilder.buildConstant(s8, 15));
+          MIRBuilder.buildMerge(DstReg, {Sign.getReg(0), Sign.getReg(0)});
+        } else {
+          MIRBuilder.buildConstant(DstReg, 0);
+        }
+        MI.eraseFromParent();
+        return LegalizerHelper::Legalized;
+      }
+
+      if (ShAmt == 0) {
+        MIRBuilder.buildCopy(DstReg, SrcReg);
+        MI.eraseFromParent();
+        return LegalizerHelper::Legalized;
+      }
+
+      auto Unmerge = MIRBuilder.buildUnmerge(s16, SrcReg);
+      Register Lo = Unmerge.getReg(0), Hi = Unmerge.getReg(1);
+
+      if (ShAmt == 1 && Opc == G_SHL) {
+        // SHL by 1 via add-to-self carry chain
+        auto LoRes = MIRBuilder.buildInstr(G_UADDO, {s16, s1}, {Lo, Lo});
+        auto HiRes = MIRBuilder.buildInstr(G_UADDE, {s16, s1},
+                         {Hi, Hi, LoRes.getReg(1)});
+        MIRBuilder.buildMerge(DstReg, {LoRes.getReg(0), HiRes.getReg(0)});
+        MI.eraseFromParent();
+        return LegalizerHelper::Legalized;
+      }
+
+      if (ShAmt == 31 && Opc == G_ASHR) {
+        // ASHR by 31: sign bit extraction
+        auto Sign = MIRBuilder.buildAShr(s16, Hi,
+                        MIRBuilder.buildConstant(s8, 15));
+        MIRBuilder.buildMerge(DstReg, {Sign.getReg(0), Sign.getReg(0)});
+        MI.eraseFromParent();
+        return LegalizerHelper::Legalized;
+      }
+
+      if (ShAmt == 16) {
+        auto Zero16 = MIRBuilder.buildConstant(s16, 0);
+        if (Opc == G_SHL)
+          MIRBuilder.buildMerge(DstReg, {Zero16.getReg(0), Lo});
+        else if (Opc == G_LSHR)
+          MIRBuilder.buildMerge(DstReg, {Hi, Zero16.getReg(0)});
+        else { // G_ASHR
+          auto Sign = MIRBuilder.buildAShr(s16, Hi,
+                          MIRBuilder.buildConstant(s8, 15));
+          MIRBuilder.buildMerge(DstReg, {Hi, Sign.getReg(0)});
+        }
+        MI.eraseFromParent();
+        return LegalizerHelper::Legalized;
+      }
+
+      // Byte-shuffle for shifts by 8 and 24.
+      // Decompose to i8 bytes: [b3:b2:b1:b0] where b0 is LSB.
+      if (ShAmt == 8 || ShAmt == 24) {
+        auto ULo = MIRBuilder.buildUnmerge(s8, Lo);
+        auto UHi = MIRBuilder.buildUnmerge(s8, Hi);
+        Register b0 = ULo.getReg(0), b1 = ULo.getReg(1);
+        Register b2 = UHi.getReg(0), b3 = UHi.getReg(1);
+        auto Zero8 = MIRBuilder.buildConstant(s8, 0);
+        Register z = Zero8.getReg(0);
+        Register rLo, rHi;
+
+        if (Opc == G_SHL && ShAmt == 8) {
+          // [b3:b2:b1:b0] << 8 = [b2:b1:b0:00]
+          rLo = MIRBuilder.buildMerge(s16, {z, b0}).getReg(0);
+          rHi = MIRBuilder.buildMerge(s16, {b1, b2}).getReg(0);
+        } else if (Opc == G_SHL && ShAmt == 24) {
+          // [b3:b2:b1:b0] << 24 = [b0:00:00:00]
+          rLo = MIRBuilder.buildConstant(s16, 0).getReg(0);
+          rHi = MIRBuilder.buildMerge(s16, {z, b0}).getReg(0);
+        } else if (Opc == G_LSHR && ShAmt == 8) {
+          // [b3:b2:b1:b0] >> 8 = [00:b3:b2:b1]
+          rLo = MIRBuilder.buildMerge(s16, {b1, b2}).getReg(0);
+          rHi = MIRBuilder.buildMerge(s16, {b3, z}).getReg(0);
+        } else if (Opc == G_LSHR && ShAmt == 24) {
+          // [b3:b2:b1:b0] >> 24 = [00:00:00:b3]
+          rLo = MIRBuilder.buildMerge(s16, {b3, z}).getReg(0);
+          rHi = MIRBuilder.buildConstant(s16, 0).getReg(0);
+        } else if (Opc == G_ASHR && ShAmt == 8) {
+          // [b3:b2:b1:b0] >>a 8 = [s3:b3:b2:b1]
+          auto Sign = MIRBuilder.buildAShr(s8, b3,
+                          MIRBuilder.buildConstant(s8, 7));
+          rLo = MIRBuilder.buildMerge(s16, {b1, b2}).getReg(0);
+          rHi = MIRBuilder.buildMerge(s16, {b3, Sign.getReg(0)}).getReg(0);
+        } else { // G_ASHR && ShAmt == 24
+          // [b3:b2:b1:b0] >>a 24 = [s3:s3:s3:b3]
+          auto Sign = MIRBuilder.buildAShr(s8, b3,
+                          MIRBuilder.buildConstant(s8, 7));
+          rLo = MIRBuilder.buildMerge(s16, {b3, Sign.getReg(0)}).getReg(0);
+          rHi = MIRBuilder.buildMerge(s16,
+                    {Sign.getReg(0), Sign.getReg(0)}).getReg(0);
+        }
+
+        MIRBuilder.buildMerge(DstReg, {rLo, rHi});
+        MI.eraseFromParent();
+        return LegalizerHelper::Legalized;
+      }
+    }
   }
   return Helper.libcall(MI, LocObserver);
 }
@@ -600,6 +816,60 @@ Z80LegalizerInfo::legalizeCompare(LegalizerHelper &Helper,
   unsigned OpSize = OpTy.getSizeInBits();
   assert(MRI.getType(DstReg) == LLT::scalar(1) && !OpTy.isVector() &&
          MRI.getType(RHSReg) == OpTy && "Unexpected type");
+
+  // Inline i32 integer comparison by splitting into i16 halves.
+  if (MI.getOpcode() == G_ICMP && OpSize == 32) {
+    LLT s16 = LLT::scalar(16);
+    LLT s8 = LLT::scalar(8);
+    LLT s1 = LLT::scalar(1);
+    auto UnmergeLHS = MIRBuilder.buildUnmerge(s16, LHSReg);
+    auto UnmergeRHS = MIRBuilder.buildUnmerge(s16, RHSReg);
+    Register aLo = UnmergeLHS.getReg(0), aHi = UnmergeLHS.getReg(1);
+    Register bLo = UnmergeRHS.getReg(0), bHi = UnmergeRHS.getReg(1);
+
+    if (Pred == CmpInst::ICMP_EQ || Pred == CmpInst::ICMP_NE) {
+      // EQ/NE: XOR halves, OR together, compare against zero
+      auto XorLo = MIRBuilder.buildXor(s16, aLo, bLo);
+      auto XorHi = MIRBuilder.buildXor(s16, aHi, bHi);
+      auto OrVal = MIRBuilder.buildOr(s16, XorLo, XorHi);
+      MIRBuilder.buildICmp(Pred, DstReg, OrVal,
+                           MIRBuilder.buildConstant(s16, 0));
+    } else {
+      // Ordering: result = hiStrict OR (hiEq AND loCmp)
+      CmpInst::Predicate HiStrictPred, LoPred;
+      switch (Pred) {
+      case CmpInst::ICMP_ULT: HiStrictPred = CmpInst::ICMP_ULT;
+                               LoPred = CmpInst::ICMP_ULT; break;
+      case CmpInst::ICMP_ULE: HiStrictPred = CmpInst::ICMP_ULT;
+                               LoPred = CmpInst::ICMP_ULE; break;
+      case CmpInst::ICMP_UGT: HiStrictPred = CmpInst::ICMP_UGT;
+                               LoPred = CmpInst::ICMP_UGT; break;
+      case CmpInst::ICMP_UGE: HiStrictPred = CmpInst::ICMP_UGT;
+                               LoPred = CmpInst::ICMP_UGE; break;
+      case CmpInst::ICMP_SLT: HiStrictPred = CmpInst::ICMP_SLT;
+                               LoPred = CmpInst::ICMP_ULT; break;
+      case CmpInst::ICMP_SLE: HiStrictPred = CmpInst::ICMP_SLT;
+                               LoPred = CmpInst::ICMP_ULE; break;
+      case CmpInst::ICMP_SGT: HiStrictPred = CmpInst::ICMP_SGT;
+                               LoPred = CmpInst::ICMP_UGT; break;
+      case CmpInst::ICMP_SGE: HiStrictPred = CmpInst::ICMP_SGT;
+                               LoPred = CmpInst::ICMP_UGE; break;
+      default: llvm_unreachable("Unexpected predicate");
+      }
+      auto HiStrict = MIRBuilder.buildICmp(HiStrictPred, s1, aHi, bHi);
+      auto HiEQ = MIRBuilder.buildICmp(CmpInst::ICMP_EQ, s1, aHi, bHi);
+      auto LoCmp = MIRBuilder.buildICmp(LoPred, s1, aLo, bLo);
+      // Combine: ZEXT to s8, AND, OR, TRUNC back to s1
+      auto HiStrictExt = MIRBuilder.buildZExt(s8, HiStrict);
+      auto HiEQExt = MIRBuilder.buildZExt(s8, HiEQ);
+      auto LoCmpExt = MIRBuilder.buildZExt(s8, LoCmp);
+      auto AndVal = MIRBuilder.buildAnd(s8, HiEQExt, LoCmpExt);
+      auto OrVal = MIRBuilder.buildOr(s8, HiStrictExt, AndVal);
+      MIRBuilder.buildTrunc(DstReg, OrVal);
+    }
+    MI.eraseFromParent();
+    return LegalizerHelper::Legalized;
+  }
 
   Type *Ty;
   RTLIB::Libcall Libcall;
@@ -1105,6 +1375,10 @@ bool Z80LegalizerInfo::legalizeIntrinsic(LegalizerHelper &Helper,
                           DstReg, DstMPI, DstAlign);
     break;
   }
+  case Intrinsic::z80_raise:
+  case Intrinsic::z80_ldpc:
+    // These are legal as-is; instruction selector handles them.
+    return true;
   default:
     return false;
   }

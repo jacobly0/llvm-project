@@ -59,6 +59,21 @@ class Z80Subtarget final : public Z80GenSubtargetInfo {
   /// True if target has SLI (also known SLL and SL1) instruction (HasUndocOps)
   bool HasSliOp = false;
 
+  // ZZ80 features
+  bool HasHWMul = false;
+  bool HasHWMulW = false;
+  bool HasHWDiv = false;
+  bool HasHWDivW = false;
+  bool HasSPRelative = false;
+  bool HasPCRelative = false;
+  bool HasBaseIndex = false;
+  bool Has16BitALU = false;
+  bool HasEXTS = false;
+  bool HasLDA = false;
+  bool HasEXReg = false;
+  bool HasCoroutine = false;
+  bool HasLDw = false;
+
   // Ordering here is important. Z80InstrInfo initializes Z80RegisterInfo which
   // Z80TargetLowering needs.
   Z80InstrInfo InstrInfo;
@@ -128,6 +143,22 @@ public:
   bool hasSliOp() const { return HasSliOp; }
   bool has24BitEZ80Ops() const { return is24Bit() && hasEZ80Ops(); }
   bool has16BitEZ80Ops() const { return is16Bit() && hasEZ80Ops(); }
+
+  // ZZ80 feature queries
+  bool isZZ80() const { return HasSPRelative && Has16BitALU; }
+  bool hasHWMul() const { return HasHWMul; }
+  bool hasHWMulW() const { return HasHWMulW; }
+  bool hasHWDiv() const { return HasHWDiv; }
+  bool hasHWDivW() const { return HasHWDivW; }
+  bool hasSPRelative() const { return HasSPRelative; }
+  bool hasPCRelative() const { return HasPCRelative; }
+  bool hasBaseIndex() const { return HasBaseIndex; }
+  bool has16BitALU() const { return Has16BitALU; }
+  bool hasEXTS() const { return HasEXTS; }
+  bool hasLDA() const { return HasLDA; }
+  bool hasEXReg() const { return HasEXReg; }
+  bool hasCoroutine() const { return HasCoroutine; }
+  bool hasLDw() const { return HasLDw; }
 };
 } // namespace llvm
 

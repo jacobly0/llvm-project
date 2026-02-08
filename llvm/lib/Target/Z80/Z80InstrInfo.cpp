@@ -109,15 +109,22 @@ unsigned Z80InstrInfo::getInstSizeInBytes(const MachineInstr &MI) const {
   bool HasOff = TSFlags & Z80II::HasOff;
   assert(!(CBPre && EDPre));
   for (unsigned OpIdx = 0; OpIdx != 2; ++OpIdx) {
-    if (!(TSFlags & Z80II::Idx0Pre << OpIdx) ||
-        !isIndex(MI.getOperand(OpIdx), getRegisterInfo()))
+    if (!(TSFlags & Z80II::Idx0Pre << OpIdx))
       continue;
-    IdxPre = true;
-    // index prefix cannot be combined with ED prefix
-    EDPre = false;
-    // (ix) gains an offset
-    if (MI.getDesc().OpInfo[OpIdx].OperandType == MCOI::OPERAND_MEMORY)
-      HasOff = true;
+    // If the instruction has no operand at this index (e.g., RAISE/LDPC where
+    // the prefix is part of the fixed encoding), count the prefix unconditionally.
+    if (OpIdx >= MI.getNumOperands() ||
+        isIndex(MI.getOperand(OpIdx), getRegisterInfo())) {
+      IdxPre = true;
+      // EZ80: index prefix substitutes for ED prefix (DD replaces ED)
+      // ZZ80 LDw: both prefixes coexist (Z280-style: DD ED opcode)
+      if (!Subtarget.hasLDw() || !EDPre)
+        EDPre = false;
+      // (ix) gains an offset
+      if (OpIdx < MI.getNumOperands() &&
+          MI.getDesc().OpInfo[OpIdx].OperandType == MCOI::OPERAND_MEMORY)
+        HasOff = true;
+    }
   }
 
   // suffix byte
@@ -1259,6 +1266,64 @@ bool Z80InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MCRegister Reg = OrigReg;
     const MachineOperand &AddrOp = MI.getOperand(1);
     MCRegister AddrReg = AddrOp.getReg();
+
+    // ZZ80 LDw: use native 16-bit load
+    if (Subtarget.hasLDw()) {
+      bool Index = Z80::I16RegClass.contains(Reg);
+      bool Overlap = RI.isSubRegisterEq(AddrReg, Reg);
+      bool AddrIsIndex = Z80::I16RegClass.contains(AddrReg);
+      bool AddrIsHL = RI.isSubRegisterEq(Z80::UHL, AddrReg);
+      // Case 1: Direct LDW (no scratch needed)
+      if (!Index && !Overlap &&
+          !(Opc == Z80::LD88rp && AddrIsIndex)) {
+        MI.setDesc(get(Opc == Z80::LD88ro ? Z80::LDW16ro : Z80::LDW16rp));
+        break;
+      }
+      // Case 2: LDW into scratch, then copy to dest
+      // Used when dest is IX/IY (Index) or dest overlaps addr (Overlap)
+      if (Index || Overlap) {
+        unsigned LDWOpc;
+        MCRegister Scratch;
+        bool CanUseLDW;
+        if (Opc == Z80::LD88ro) {
+          // Offset form: ldw scratch, (ix/iy+d)
+          LDWOpc = Z80::LDW16ro;
+          Scratch = Z80::HL;
+          if (RI.isSubRegisterEq(AddrReg, Z80::HL))
+            Scratch = Z80::DE;
+          CanUseLDW = true;
+        } else {
+          // Pointer form: ldw scratch, (hl) — only HL as addr
+          LDWOpc = Z80::LDW16rp;
+          CanUseLDW = AddrIsHL;
+          Scratch = Z80::DE;
+          if (!Index && RI.isSubRegisterEq(Reg, Z80::DE))
+            Scratch = Z80::BC;
+        }
+        if (CanUseLDW) {
+          MCRegister ScratchSuper = Is24Bit
+              ? TRI.getMatchingSuperReg(Scratch, Z80::sub_short,
+                                        &Z80::R24RegClass)
+              : Scratch;
+          // Save scratch
+          applySPAdjust(
+              *BuildMI(MBB, MI, DL,
+                       get(Is24Bit ? Z80::PUSH24r : Z80::PUSH16r))
+                   .addReg(ScratchSuper, RegState::Undef));
+          // LDW scratch, (addr)
+          MI.setDesc(get(LDWOpc));
+          DstOp.setReg(Scratch);
+          // Copy scratch → original dest
+          copyPhysReg(MBB, Next, DL, OrigReg, Scratch, true);
+          // Restore scratch
+          applySPAdjust(*BuildMI(
+              MBB, Next, DL, get(Is24Bit ? Z80::POP24r : Z80::POP16r),
+              ScratchSuper));
+          break;
+        }
+      }
+    }
+
     unsigned LowOpc = Opc == Z80::LD88rp ? Z80::LD8rp : Z80::LD8ro;
     unsigned HighOpc =
         RI.isSubRegisterEq(Z80::UHL, AddrReg) ? Z80::LD8rp : Z80::LD8ro;
@@ -1350,6 +1415,60 @@ bool Z80InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     MachineOperand &SrcOp = MI.getOperand(MI.getNumExplicitOperands() - 1);
     MCRegister OrigReg = SrcOp.getReg();
     MCRegister Reg = OrigReg;
+
+    // ZZ80 LDw: use native 16-bit store
+    if (Subtarget.hasLDw()) {
+      bool Index = Z80::I16RegClass.contains(Reg);
+      bool AddrIsIndex = Z80::I16RegClass.contains(AddrReg);
+      bool AddrIsHL = RI.isSubRegisterEq(Z80::UHL, AddrReg);
+      // Case 1: Direct LDW store (no scratch needed)
+      if (!Index && !(Opc == Z80::LD88pr && AddrIsIndex)) {
+        MI.setDesc(get(Opc == Z80::LD88or ? Z80::LDW16or : Z80::LDW16pr));
+        break;
+      }
+      // Case 2: Copy src to scratch, then LDW store from scratch
+      // Used when source is IX/IY (Index)
+      if (Index) {
+        unsigned LDWOpc;
+        MCRegister Scratch;
+        bool CanUseLDW;
+        if (Opc == Z80::LD88or) {
+          // Offset form: ldw (ix/iy+d), scratch
+          LDWOpc = Z80::LDW16or;
+          Scratch = Z80::HL;
+          if (RI.isSubRegisterEq(AddrReg, Z80::HL))
+            Scratch = Z80::DE;
+          CanUseLDW = true;
+        } else {
+          // Pointer form: ldw (hl), scratch — only HL as addr
+          LDWOpc = Z80::LDW16pr;
+          CanUseLDW = AddrIsHL;
+          Scratch = Z80::DE;
+        }
+        if (CanUseLDW) {
+          MCRegister ScratchSuper = Is24Bit
+              ? TRI.getMatchingSuperReg(Scratch, Z80::sub_short,
+                                        &Z80::R24RegClass)
+              : Scratch;
+          // Save scratch
+          applySPAdjust(
+              *BuildMI(MBB, MI, DL,
+                       get(Is24Bit ? Z80::PUSH24r : Z80::PUSH16r))
+                   .addReg(ScratchSuper, RegState::Undef));
+          // Copy IX/IY → scratch
+          copyPhysReg(MBB, MI, DL, Scratch, OrigReg, SrcOp.isKill());
+          // LDW (addr), scratch
+          MI.setDesc(get(LDWOpc));
+          SrcOp.setReg(Scratch);
+          // Restore scratch
+          applySPAdjust(*BuildMI(
+              MBB, Next, DL, get(Is24Bit ? Z80::POP24r : Z80::POP16r),
+              ScratchSuper));
+          break;
+        }
+      }
+    }
+
     unsigned LowOpc = Opc == Z80::LD88pr ? Z80::LD8pr : Z80::LD8or;
     unsigned HighOpc =
         RI.isSubRegisterEq(Z80::UHL, AddrReg) ? Z80::LD8pr : Z80::LD8or;
@@ -1443,16 +1562,24 @@ bool Z80InstrInfo::expandPostRAPseudo(MachineInstr &MI) const {
     break;
   }
   case Z80::LD16rm:
-    expandLoadStoreWord(&Z80::A16RegClass, Z80::LD16am,
-                        &Z80::O16RegClass, Z80::LD16gm, MI, 0);
+    if (Subtarget.hasLDw())
+      expandLoadStoreWord(&Z80::A16RegClass, Z80::LDW16am,
+                          &Z80::O16RegClass, Z80::LDW16gm, MI, 0);
+    else
+      expandLoadStoreWord(&Z80::A16RegClass, Z80::LD16am,
+                          &Z80::O16RegClass, Z80::LD16gm, MI, 0);
     break;
   case Z80::LD24rm:
     expandLoadStoreWord(&Z80::A24RegClass, Z80::LD24am,
                         &Z80::O24RegClass, Z80::LD24gm, MI, 0);
     break;
   case Z80::LD16mr:
-    expandLoadStoreWord(&Z80::A16RegClass, Z80::LD16ma,
-                        &Z80::O16RegClass, Z80::LD16mg, MI, 1);
+    if (Subtarget.hasLDw())
+      expandLoadStoreWord(&Z80::A16RegClass, Z80::LDW16ma,
+                          &Z80::O16RegClass, Z80::LDW16mg, MI, 1);
+    else
+      expandLoadStoreWord(&Z80::A16RegClass, Z80::LD16ma,
+                          &Z80::O16RegClass, Z80::LD16mg, MI, 1);
     break;
   case Z80::LD24mr:
     expandLoadStoreWord(&Z80::A24RegClass, Z80::LD24ma,

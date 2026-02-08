@@ -14,6 +14,7 @@
 #include "MCTargetDesc/Z80MCTargetDesc.h"
 #include "Z80.h"
 #include "Z80RegisterInfo.h"
+#include "Z80Subtarget.h"
 #include "llvm/CodeGen/LiveRegUnits.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
@@ -633,6 +634,41 @@ bool Z80MachineLateOptimization::runOnMachineFunction(MachineFunction &MF) {
           break;
         }
         break;
+      }
+      case Z80::ADD16as: {
+        // Peephole: LD16ri HL, imm / ADD16as HL, SP → LDA16hs_sp imm
+        const auto &Z80STI = MF.getSubtarget<Z80Subtarget>();
+        if (!Z80STI.hasLDA())
+          break;
+        if (DstReg != Z80::HL)
+          break;
+        // Find preceding instruction
+        MachineBasicBlock::iterator PrevIt(MIB.getInstr());
+        if (PrevIt == MBB.begin())
+          break;
+        --PrevIt;
+        MachineInstr &PrevMI = *PrevIt;
+        if (PrevMI.getOpcode() != Z80::LD16ri)
+          break;
+        if (PrevMI.getOperand(0).getReg() != Z80::HL)
+          break;
+        int64_t Imm = PrevMI.getOperand(1).getImm();
+        LLVM_DEBUG(dbgs() << "Replacing: "; PrevMI.dump();
+                   dbgs() << "     And:  "; MIB->dump();
+                   dbgs() << "     With: ");
+        // Build LDA16hs_sp before the ADD16as position
+        auto NewMI = BuildMI(MBB, MIB.getInstr(), MIB->getDebugLoc(),
+                             TII.get(Z80::LDA16hs_sp))
+                         .addImm(Imm);
+        LLVM_DEBUG(NewMI->dump());
+        // Erase both old instructions
+        PrevMI.eraseFromParent();
+        MIB->eraseFromParent();
+        // Clobber HL and F tracking since LDA wrote HL
+        clobber<MCRegAliasIterator>(Z80::HL, true);
+        assign(Z80::F);
+        Changed = true;
+        continue;
       }
       }
 

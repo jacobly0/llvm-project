@@ -44,6 +44,9 @@ private:
   legalizeAddSub(LegalizerHelper &Helper, MachineInstr &MI,
                  LostDebugLocObserver &LocObserver) const;
   LegalizerHelper::LegalizeResult
+  legalizeMul(LegalizerHelper &Helper, MachineInstr &MI,
+              LostDebugLocObserver &LocObserver) const;
+  LegalizerHelper::LegalizeResult
   legalizeBitwise(LegalizerHelper &Helper, MachineInstr &MI,
                   LostDebugLocObserver &LocObserver) const;
   LegalizerHelper::LegalizeResult legalizeExtractInsert(LegalizerHelper &Helper,

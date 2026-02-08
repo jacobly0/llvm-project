@@ -20,6 +20,7 @@
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/CodeGen/RegisterScavenging.h"
 #include "llvm/CodeGen/TargetFrameLowering.h"
 #include "llvm/Support/Debug.h"
 using namespace llvm;
@@ -101,11 +102,14 @@ unsigned Z80RegisterInfo::getRegPressureLimit(const TargetRegisterClass *RC,
 
 const MCPhysReg *
 Z80RegisterInfo::getCalleeSavedRegs(const MachineFunction *MF) const {
+  const Z80Subtarget &STI = MF->getSubtarget<Z80Subtarget>();
   switch (MF->getFunction().getCallingConv()) {
   default:
     llvm_unreachable("Unsupported calling convention");
   case CallingConv::C:
   case CallingConv::Fast:
+    if (STI.isZZ80())
+      return CSR_ZZ80_C_SaveList;
     return Is24Bit ? CSR_EZ80_C_SaveList : CSR_Z80_C_SaveList;
   case CallingConv::Z80_LibCall:
   case CallingConv::Z80_LibCall_AB:
@@ -131,6 +135,8 @@ Z80RegisterInfo::getCallPreservedMask(const MachineFunction &MF,
   default: llvm_unreachable("Unsupported calling convention");
   case CallingConv::C:
   case CallingConv::Fast:
+    if (MF.getSubtarget<Z80Subtarget>().isZZ80())
+      return CSR_ZZ80_C_RegMask;
     return Is24Bit ? CSR_EZ80_C_RegMask : CSR_Z80_C_RegMask;
   case CallingConv::PreserveAll:
   case CallingConv::Z80_LibCall:
@@ -161,11 +167,15 @@ BitVector Z80RegisterInfo::getReservedRegs(const MachineFunction &MF) const {
   Reserved.set(getProgramCounter());
 
   // Set the frame-pointer register and its aliases as reserved if needed.
-  for (Register Reg :
-       {Register(Is24Bit ? Z80::UIX : Z80::IX), getFrameRegister(MF)})
-    for (MCRegAliasIterator I(Reg, this, /*IncludeSelf=*/true); I.isValid();
-         ++I)
-      Reserved.set(*I);
+  // On ZZ80 without FP, IX and IY are allocatable (callee-saved).
+  const Z80Subtarget &STI = MF.getSubtarget<Z80Subtarget>();
+  if (!(STI.isZZ80() && !getFrameLowering(MF)->hasFP(MF))) {
+    for (Register Reg :
+         {Register(Is24Bit ? Z80::UIX : Z80::IX), getFrameRegister(MF)})
+      for (MCRegAliasIterator I(Reg, this, /*IncludeSelf=*/true); I.isValid();
+           ++I)
+        Reserved.set(*I);
+  }
 
   return Reserved;
 }
@@ -207,13 +217,228 @@ void Z80RegisterInfo::eliminateFrameIndex(MachineBasicBlock::iterator II,
   const Z80InstrInfo &TII = *STI.getInstrInfo();
   const Z80FrameLowering *TFI = getFrameLowering(MF);
   int FrameIndex = MI.getOperand(FIOperandNum).getIndex();
-  Register BaseReg = getFrameRegister(MF);
-  assert(TFI->hasFP(MF) && "Stack slot use without fp unimplemented");
   auto Offset = MF.getFrameInfo().getObjectOffset(FrameIndex) -
                 TFI->getOffsetOfLocalArea();
   if (FrameIndex < 0)
     // For fixed indices, skip over callee save slots.
     Offset += MF.getInfo<Z80MachineFunctionInfo>()->getCalleeSavedFrameSize();
+
+  if (STI.isZZ80() && !TFI->hasFP(MF)) {
+    // SP-relative frame access: compute offset from current SP.
+    Offset += MF.getFrameInfo().getStackSize() + SPAdj;
+    int64_t InstrOffset =
+        TII.getRegisterInfo().getFrameIndexInstrOffset(&MI, FIOperandNum);
+    int64_t NewOffset = Offset + InstrOffset;
+
+    DebugLoc DL = MI.getDebugLoc();
+    unsigned Opc = MI.getOpcode();
+    // Save iterator to the next instruction before modifying/erasing MI.
+    MachineBasicBlock::iterator NextII = std::next(II);
+
+    // Tier 1: Direct SP-relative instruction conversion.
+    // Replace o-form instructions with native SP-relative instructions
+    // that encode the offset directly, needing no scratch register.
+    if (STI.hasSPRelative()) {
+      unsigned SPOpc = 0;
+      switch (Opc) {
+      default: break;
+      // 8-bit loads: LD r,(SP+dd) — any G8 register
+      case Z80::LD8go:  SPOpc = Z80::LD8gs_sp;  break;
+      case Z80::LD8ro:
+        // LD8ro is a pseudo for R8; only G8 registers supported by SP-relative
+        if (Z80::G8RegClass.contains(MI.getOperand(0).getReg()))
+          SPOpc = Z80::LD8gs_sp;
+        break;
+      // 8-bit stores: only A can store to (SP+dd)
+      case Z80::LD8og:
+        if (MI.getOperand(FIOperandNum + 2).getReg() == Z80::A)
+          SPOpc = Z80::LD8sa_sp;
+        break;
+      case Z80::LD8or:
+        if (MI.getOperand(FIOperandNum + 2).getReg() == Z80::A)
+          SPOpc = Z80::LD8sa_sp;
+        break;
+      // 8-bit store immediate: LD (SP+dd),n
+      case Z80::LD8oi:  SPOpc = Z80::LD8si_sp;  break;
+      // 16-bit loads: only HL can load from (SP+dd)
+      case Z80::LD16ro:
+      case Z80::LD88ro:
+        if (MI.getOperand(0).getReg() == Z80::HL)
+          SPOpc = Z80::LD16hs_sp;
+        break;
+      // 16-bit stores: only HL can store to (SP+dd)
+      case Z80::LD16or:
+      case Z80::LD88or:
+        if (MI.getOperand(FIOperandNum + 2).getReg() == Z80::HL)
+          SPOpc = Z80::LD16sh_sp;
+        break;
+      // LEA (load effective address) → LDA HL,(SP+dd)
+      case Z80::LEA16ro:
+        if (MI.getOperand(0).getReg() == Z80::HL)
+          SPOpc = Z80::LDA16hs_sp;
+        break;
+      // 8-bit ALU with (SP+dd) operand
+      case Z80::ADD8ao: SPOpc = Z80::ADD8as_sp; break;
+      case Z80::ADC8ao: SPOpc = Z80::ADC8as_sp; break;
+      case Z80::SUB8ao: SPOpc = Z80::SUB8as_sp; break;
+      case Z80::SBC8ao: SPOpc = Z80::SBC8as_sp; break;
+      case Z80::AND8ao: SPOpc = Z80::AND8as_sp; break;
+      case Z80::XOR8ao: SPOpc = Z80::XOR8as_sp; break;
+      case Z80::OR8ao:  SPOpc = Z80::OR8as_sp;  break;
+      case Z80::CP8ao:  SPOpc = Z80::CP8as_sp;  break;
+      // INC/DEC on (SP+dd)
+      case Z80::INC8o:  SPOpc = Z80::INC8s_sp;  break;
+      case Z80::DEC8o:  SPOpc = Z80::DEC8s_sp;  break;
+      }
+
+      if (SPOpc) {
+        // Build the replacement SP-relative instruction.
+        switch (Opc) {
+        // 8-bit load: LD r,(SP+dd) — has explicit dst register
+        case Z80::LD8go:
+        case Z80::LD8ro: {
+          Register DstReg = MI.getOperand(0).getReg();
+          BuildMI(MBB, II, DL, TII.get(SPOpc), DstReg).addImm(NewOffset);
+          break;
+        }
+        // 8-bit store A: LD (SP+dd),A — A is implicit
+        case Z80::LD8og:
+        case Z80::LD8or:
+          BuildMI(MBB, II, DL, TII.get(SPOpc)).addImm(NewOffset);
+          break;
+        // 8-bit store immediate: LD (SP+dd),n
+        case Z80::LD8oi: {
+          int64_t ImmVal = MI.getOperand(FIOperandNum + 2).getImm();
+          BuildMI(MBB, II, DL, TII.get(SPOpc)).addImm(NewOffset).addImm(ImmVal);
+          break;
+        }
+        // 16-bit load HL: LDw HL,(SP+dd) — HL is implicit def
+        case Z80::LD16ro:
+        case Z80::LD88ro:
+          BuildMI(MBB, II, DL, TII.get(SPOpc)).addImm(NewOffset);
+          break;
+        // 16-bit store HL: LDw (SP+dd),HL — HL is implicit use
+        case Z80::LD16or:
+        case Z80::LD88or:
+          BuildMI(MBB, II, DL, TII.get(SPOpc)).addImm(NewOffset);
+          break;
+        // LEA → LDA HL,(SP+dd) — HL is implicit def
+        case Z80::LEA16ro:
+          BuildMI(MBB, II, DL, TII.get(SPOpc)).addImm(NewOffset);
+          break;
+        // ALU, INC/DEC: all have just the offset operand
+        default:
+          BuildMI(MBB, II, DL, TII.get(SPOpc)).addImm(NewOffset);
+          break;
+        }
+        MI.eraseFromParent();
+        return;
+      }
+    }
+
+    // Tier 2: Use LDA HL,(SP+dd) when available, otherwise LD HL,dd; ADD HL,SP.
+    // LDA saves one instruction over the LD+ADD sequence.
+
+    // Find an unused A16 register without spilling (avoids circular
+    // dependency since spilling would create new frame index references).
+    Register ScratchReg = RS ? RS->FindUnusedReg(&Z80::A16RegClass)
+                             : Register();
+    bool NeedSave = !ScratchReg;
+    if (NeedSave) {
+      ScratchReg = Z80::HL;
+      // If the instruction defines ScratchReg (e.g., LEA with HL destination),
+      // we don't need to save/restore it since it will be overwritten anyway.
+      if (Opc == Z80::LEA16ro && MI.getOperand(0).getReg() == ScratchReg)
+        NeedSave = false;
+    }
+    if (NeedSave) {
+      // No free A16 register — use HL and save/restore via PUSH/POP.
+      // PUSH changes SP, so adjust the offset to compensate.
+      NewOffset += TFI->getSlotSize();
+      TII.applySPAdjust(
+          *BuildMI(MBB, II, DL, TII.get(Z80::PUSH16r))
+               .addReg(ScratchReg)
+               .setMIFlag(MachineInstr::FrameSetup));
+    }
+
+    // Materialize effective address into ScratchReg.
+    if (STI.hasSPRelative() && ScratchReg == Z80::HL) {
+      // LDA HL,(SP+offset) — single instruction
+      BuildMI(MBB, II, DL, TII.get(Z80::LDA16hs_sp)).addImm(NewOffset);
+    } else {
+      // LD scratch, offset; ADD scratch, SP — two instructions
+      BuildMI(MBB, II, DL, TII.get(Z80::LD16ri), ScratchReg).addImm(NewOffset);
+      BuildMI(MBB, II, DL, TII.get(Z80::ADD16as), ScratchReg)
+          .addReg(ScratchReg)
+          ->addRegisterDead(Z80::F, this);
+    }
+
+    // Convert the instruction to use pointer-indirect through ScratchReg.
+    if (Z80::I16RegClass.contains(ScratchReg)) {
+      // IX or IY: keep the offset-form with offset 0.
+      MI.getOperand(FIOperandNum).ChangeToRegister(ScratchReg, false);
+      MI.getOperand(FIOperandNum + 1).ChangeToImmediate(0);
+    } else if (Opc == Z80::LEA16ro) {
+      // LEA is "load effective address" — the address is already in
+      // ScratchReg, just copy it to the destination if different.
+      Register DstReg = MI.getOperand(0).getReg();
+      MI.eraseFromParent();
+      if (DstReg != ScratchReg)
+        TII.copyRegister(MBB, NextII, DL, DstReg, ScratchReg);
+    } else {
+      // HL (or other non-index): convert from offset-form (o) to
+      // pointer-form (p).
+      MI.getOperand(FIOperandNum).ChangeToRegister(ScratchReg, false);
+      unsigned NewOpc;
+      switch (Opc) {
+      default: llvm_unreachable("Unexpected opcode for SP-relative rewrite!");
+      case Z80::LD8ro:   NewOpc = Z80::LD8rp;   break;
+      case Z80::LD8go:   NewOpc = Z80::LD8gp;   break;
+      case Z80::LD16ro:  NewOpc = Z80::LD16rp;  break;
+      case Z80::LD88ro:  NewOpc = Z80::LD88rp;  break;
+      case Z80::LD8or:   NewOpc = Z80::LD8pr;   break;
+      case Z80::LD8og:   NewOpc = Z80::LD8pg;   break;
+      case Z80::LD16or:  NewOpc = Z80::LD16pr;  break;
+      case Z80::LD88or:  NewOpc = Z80::LD88pr;  break;
+      case Z80::LD8oi:   NewOpc = Z80::LD8pi;   break;
+      case Z80::PEA16o:  NewOpc = Z80::PUSH16r; break;
+      case Z80::RLC8o:   NewOpc = Z80::RLC8p;   break;
+      case Z80::RRC8o:   NewOpc = Z80::RRC8p;   break;
+      case Z80::RL8o:    NewOpc = Z80::RL8p;    break;
+      case Z80::RR8o:    NewOpc = Z80::RR8p;    break;
+      case Z80::SLA8o:   NewOpc = Z80::SLA8p;   break;
+      case Z80::SRA8o:   NewOpc = Z80::SRA8p;   break;
+      case Z80::SRL8o:   NewOpc = Z80::SRL8p;   break;
+      case Z80::BIT8ob:  NewOpc = Z80::BIT8pb;  break;
+      case Z80::RES8ob:  NewOpc = Z80::RES8pb;  break;
+      case Z80::SET8ob:  NewOpc = Z80::SET8pb;  break;
+      case Z80::INC8o:   NewOpc = Z80::INC8p;   break;
+      case Z80::DEC8o:   NewOpc = Z80::DEC8p;   break;
+      case Z80::ADD8ao:  NewOpc = Z80::ADD8ap;  break;
+      case Z80::ADC8ao:  NewOpc = Z80::ADC8ap;  break;
+      case Z80::SUB8ao:  NewOpc = Z80::SUB8ap;  break;
+      case Z80::SBC8ao:  NewOpc = Z80::SBC8ap;  break;
+      case Z80::AND8ao:  NewOpc = Z80::AND8ap;  break;
+      case Z80::XOR8ao:  NewOpc = Z80::XOR8ap;  break;
+      case Z80::OR8ao:   NewOpc = Z80::OR8ap;   break;
+      case Z80::CP8ao:   NewOpc = Z80::CP8ap;   break;
+      }
+      MI.setDesc(TII.get(NewOpc));
+      MI.removeOperand(FIOperandNum + 1);
+    }
+
+    if (NeedSave) {
+      // Restore the saved register. Insert POP after all modified/inserted
+      // instructions, right before the original next instruction.
+      TII.applySPAdjust(
+          *BuildMI(MBB, NextII, DL, TII.get(Z80::POP16r), ScratchReg)
+               .setMIFlag(MachineInstr::FrameDestroy));
+    }
+    return;
+  }
+
+  assert(TFI->hasFP(MF) && "Stack slot use without fp unimplemented");
+  Register BaseReg = getFrameRegister(MF);
   TII.rewriteFrameIndex(MI, FIOperandNum, BaseReg, Offset, RS, SPAdj);
 }
 

@@ -23,6 +23,7 @@
 #include "llvm/CodeGen/GlobalISel/InstructionSelectorImpl.h"
 #include "llvm/CodeGen/GlobalISel/MIPatternMatch.h"
 #include "llvm/CodeGen/GlobalISel/MachineIRBuilder.h"
+#include "llvm/IR/IntrinsicsZ80.h"
 #include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineJumpTableInfo.h"
 #include "llvm/Support/Debug.h"
@@ -107,7 +108,13 @@ private:
                   MachineFunction &MF) const;
   bool selectImplicitDefOrPHI(MachineInstr &I, MachineRegisterInfo &MRI) const;
 
+  bool selectMul(MachineInstr &I, MachineRegisterInfo &MRI) const;
+  bool selectUMulH(MachineInstr &I, MachineRegisterInfo &MRI) const;
+  bool selectDiv(MachineInstr &I, MachineRegisterInfo &MRI) const;
+
   bool selectInlineAsm(MachineInstr &I, MachineRegisterInfo &MRI) const;
+  bool selectIntrinsicWithSideEffects(MachineInstr &I,
+                                      MachineRegisterInfo &MRI) const;
 
   ComplexRendererFns selectMem(MachineOperand &Root) const;
   ComplexRendererFns selectOff(MachineOperand &Root) const;
@@ -392,6 +399,17 @@ bool Z80InstructionSelector::select(MachineInstr &I) const {
   case TargetOpcode::G_IMPLICIT_DEF:
   case TargetOpcode::G_PHI:
     return selectImplicitDefOrPHI(I, MRI);
+  case TargetOpcode::G_MUL:
+    return selectMul(I, MRI);
+  case TargetOpcode::G_UMULH:
+    return selectUMulH(I, MRI);
+  case TargetOpcode::G_SDIV:
+  case TargetOpcode::G_UDIV:
+  case TargetOpcode::G_SREM:
+  case TargetOpcode::G_UREM:
+    return selectDiv(I, MRI);
+  case TargetOpcode::G_INTRINSIC_W_SIDE_EFFECTS:
+    return selectIntrinsicWithSideEffects(I, MRI);
   default:
     return false;
   }
@@ -475,6 +493,22 @@ bool Z80InstructionSelector::selectSExt(MachineInstr &I,
 
   LLT DstTy = MRI.getType(DstReg);
   LLT SrcTy = MRI.getType(SrcReg);
+
+  if (SrcTy == LLT::scalar(8) && DstTy == LLT::scalar(16) && STI.hasEXTS()) {
+    // EXTS8: sign-extend A → HL
+    MachineIRBuilder MIB(I);
+    auto CopyToA = MIB.buildCopy(Register(Z80::A), SrcReg);
+    if (!constrainSelectedInstRegOperands(*CopyToA, TII, TRI, RBI))
+      return false;
+    auto Ext = MIB.buildInstr(Z80::EXTS8);
+    if (!constrainSelectedInstRegOperands(*Ext, TII, TRI, RBI))
+      return false;
+    auto CopyFromHL = MIB.buildCopy(DstReg, Register(Z80::HL));
+    if (!RBI.constrainGenericRegister(DstReg, Z80::R16RegClass, MRI))
+      return false;
+    I.eraseFromParent();
+    return true;
+  }
 
   if (SrcTy != LLT::scalar(1))
     return false;
@@ -1369,7 +1403,7 @@ Z80InstructionSelector::foldCompare(MachineInstr &I, MachineIRBuilder &MIB,
     Reg = Z80::A;
     break;
   case 16:
-    Opc = Z80::Sub16ao;
+    Opc = STI.has16BitALU() ? Z80::CPw16ar : Z80::Sub16ao;
     LDIOpc = Z80::LD16ri;
     AddOpc = Z80::ADD16ao;
     Reg = Z80::HL;
@@ -1545,9 +1579,15 @@ Z80::CondCode Z80InstructionSelector::foldExtendedAddSub(
     AddSubRC = &Z80::R8RegClass;
     break;
   case 16:
-    AddSubOpc = IsAdd ? IsExtend ? Z80::ADC16ao : Z80::ADD16ao : Z80::SBC16ao;
-    if ((NeedCarry = !IsAdd || IsExtend))
+    if (STI.has16BitALU() && !IsAdd && !IsExtend) {
+      AddSubOpc = Z80::SUBw16ar;
+      NeedCarry = false;
       AddSubReg = Z80::HL;
+    } else {
+      AddSubOpc = IsAdd ? IsExtend ? Z80::ADC16ao : Z80::ADD16ao : Z80::SBC16ao;
+      if ((NeedCarry = !IsAdd || IsExtend))
+        AddSubReg = Z80::HL;
+    }
     AddSubRC = &Z80::R16RegClass;
     break;
   case 24:
@@ -2058,6 +2098,220 @@ bool Z80InstructionSelector::selectImplicitDefOrPHI(
 
   Register DstReg = I.getOperand(0).getReg();
   return RBI.constrainGenericRegister(DstReg, *getRegClass(DstReg, MRI), MRI);
+}
+
+bool Z80InstructionSelector::selectMul(MachineInstr &I,
+                                       MachineRegisterInfo &MRI) const {
+  assert(I.getOpcode() == TargetOpcode::G_MUL && "unexpected instruction");
+
+  Register DstReg = I.getOperand(0).getReg();
+  Register LHSReg = I.getOperand(1).getReg();
+  Register RHSReg = I.getOperand(2).getReg();
+  unsigned Size = MRI.getType(DstReg).getSizeInBits();
+
+  MachineIRBuilder MIB(I);
+
+  if (Size == 8 && STI.hasHWMul()) {
+    // MULTU8ar: A * R8 -> HL, low byte in L
+    auto CopyToA = MIB.buildCopy(Register(Z80::A), LHSReg);
+    if (!constrainSelectedInstRegOperands(*CopyToA, TII, TRI, RBI))
+      return false;
+    if (!RBI.constrainGenericRegister(RHSReg, Z80::R8RegClass, MRI))
+      return false;
+    auto Mul = MIB.buildInstr(Z80::MULTU8ar, {}, {RHSReg});
+    if (!constrainSelectedInstRegOperands(*Mul, TII, TRI, RBI))
+      return false;
+    auto CopyFromL = MIB.buildCopy(DstReg, Register(Z80::L));
+    if (!RBI.constrainGenericRegister(DstReg, Z80::R8RegClass, MRI))
+      return false;
+    I.eraseFromParent();
+    return true;
+  }
+
+  if (Size == 16 && STI.hasHWMulW()) {
+    // MULTUW16ar: HL * O16 -> DE:HL, low word in HL
+    auto CopyToHL = MIB.buildCopy(Register(Z80::HL), LHSReg);
+    if (!constrainSelectedInstRegOperands(*CopyToHL, TII, TRI, RBI))
+      return false;
+    if (!RBI.constrainGenericRegister(RHSReg, Z80::O16RegClass, MRI))
+      return false;
+    auto Mul = MIB.buildInstr(Z80::MULTUW16ar, {}, {RHSReg});
+    if (!constrainSelectedInstRegOperands(*Mul, TII, TRI, RBI))
+      return false;
+    auto CopyFromHL = MIB.buildCopy(DstReg, Register(Z80::HL));
+    if (!RBI.constrainGenericRegister(DstReg, Z80::R16RegClass, MRI))
+      return false;
+    I.eraseFromParent();
+    return true;
+  }
+
+  return false;
+}
+
+bool Z80InstructionSelector::selectUMulH(MachineInstr &I,
+                                          MachineRegisterInfo &MRI) const {
+  assert(I.getOpcode() == TargetOpcode::G_UMULH && "unexpected instruction");
+
+  Register DstReg = I.getOperand(0).getReg();
+  Register LHSReg = I.getOperand(1).getReg();
+  Register RHSReg = I.getOperand(2).getReg();
+  unsigned Size = MRI.getType(DstReg).getSizeInBits();
+
+  if (Size != 16 || !STI.hasHWMulW())
+    return false;
+
+  MachineIRBuilder MIB(I);
+
+  // MULTUW16ar: HL * O16 -> DE:HL, high word in DE
+  auto CopyToHL = MIB.buildCopy(Register(Z80::HL), LHSReg);
+  if (!constrainSelectedInstRegOperands(*CopyToHL, TII, TRI, RBI))
+    return false;
+  if (!RBI.constrainGenericRegister(RHSReg, Z80::O16RegClass, MRI))
+    return false;
+  auto Mul = MIB.buildInstr(Z80::MULTUW16ar, {}, {RHSReg});
+  if (!constrainSelectedInstRegOperands(*Mul, TII, TRI, RBI))
+    return false;
+  auto CopyFromDE = MIB.buildCopy(DstReg, Register(Z80::DE));
+  if (!RBI.constrainGenericRegister(DstReg, Z80::R16RegClass, MRI))
+    return false;
+  I.eraseFromParent();
+  return true;
+}
+
+bool Z80InstructionSelector::selectDiv(MachineInstr &I,
+                                       MachineRegisterInfo &MRI) const {
+  unsigned Opc = I.getOpcode();
+  assert((Opc == TargetOpcode::G_SDIV || Opc == TargetOpcode::G_UDIV ||
+          Opc == TargetOpcode::G_SREM || Opc == TargetOpcode::G_UREM) &&
+         "unexpected instruction");
+
+  bool IsSigned = (Opc == TargetOpcode::G_SDIV || Opc == TargetOpcode::G_SREM);
+  bool IsRem = (Opc == TargetOpcode::G_SREM || Opc == TargetOpcode::G_UREM);
+
+  Register DstReg = I.getOperand(0).getReg();
+  Register LHSReg = I.getOperand(1).getReg();
+  Register RHSReg = I.getOperand(2).getReg();
+  unsigned Size = MRI.getType(DstReg).getSizeInBits();
+
+  MachineIRBuilder MIB(I);
+
+  if (Size == 8 && STI.hasHWDiv()) {
+    // DIV/DIVU HL, R8: HL / R8 -> L (quotient), H (remainder)
+    // Sign-extend or zero-extend dividend into HL first.
+    if (IsSigned) {
+      // Copy dividend to A, then EXTS8 (sign-extends A -> HL)
+      auto CopyToA = MIB.buildCopy(Register(Z80::A), LHSReg);
+      if (!constrainSelectedInstRegOperands(*CopyToA, TII, TRI, RBI))
+        return false;
+      auto Ext = MIB.buildInstr(Z80::EXTS8);
+      if (!constrainSelectedInstRegOperands(*Ext, TII, TRI, RBI))
+        return false;
+    } else {
+      // Zero-extend: H=0, L=dividend
+      auto CopyToL = MIB.buildCopy(Register(Z80::L), LHSReg);
+      if (!constrainSelectedInstRegOperands(*CopyToL, TII, TRI, RBI))
+        return false;
+      auto ZeroH = MIB.buildInstr(Z80::LD8ri, {Register(Z80::H)}, {int64_t(0)});
+      if (!constrainSelectedInstRegOperands(*ZeroH, TII, TRI, RBI))
+        return false;
+    }
+
+    if (!RBI.constrainGenericRegister(RHSReg, Z80::R8RegClass, MRI))
+      return false;
+    unsigned DivOpc = IsSigned ? Z80::DIV16r : Z80::DIVU16r;
+    auto Div = MIB.buildInstr(DivOpc, {}, {RHSReg});
+    if (!constrainSelectedInstRegOperands(*Div, TII, TRI, RBI))
+      return false;
+
+    // Quotient in L, remainder in H
+    Register ResultReg = IsRem ? Z80::H : Z80::L;
+    auto CopyResult = MIB.buildCopy(DstReg, ResultReg);
+    if (!RBI.constrainGenericRegister(DstReg, Z80::R8RegClass, MRI))
+      return false;
+    I.eraseFromParent();
+    return true;
+  }
+
+  if (Size == 16 && STI.hasHWDivW()) {
+    // DIVW/DIVUW DE:HL, O16: DE:HL / O16 -> HL (quotient), DE (remainder)
+    if (IsSigned) {
+      // Copy dividend to HL, then EXTSw16 (sign-extends HL -> DE:HL)
+      auto CopyToHL = MIB.buildCopy(Register(Z80::HL), LHSReg);
+      if (!constrainSelectedInstRegOperands(*CopyToHL, TII, TRI, RBI))
+        return false;
+      auto Ext = MIB.buildInstr(Z80::EXTSw16);
+      if (!constrainSelectedInstRegOperands(*Ext, TII, TRI, RBI))
+        return false;
+    } else {
+      // Zero-extend: DE=0, HL=dividend
+      auto CopyToHL = MIB.buildCopy(Register(Z80::HL), LHSReg);
+      if (!constrainSelectedInstRegOperands(*CopyToHL, TII, TRI, RBI))
+        return false;
+      auto ZeroDE = MIB.buildInstr(Z80::LD16ri, {Register(Z80::DE)}, {int64_t(0)});
+      if (!constrainSelectedInstRegOperands(*ZeroDE, TII, TRI, RBI))
+        return false;
+    }
+
+    if (!RBI.constrainGenericRegister(RHSReg, Z80::O16RegClass, MRI))
+      return false;
+    unsigned DivOpc = IsSigned ? Z80::DIVW16ar : Z80::DIVUW16ar;
+    auto Div = MIB.buildInstr(DivOpc, {}, {RHSReg});
+    if (!constrainSelectedInstRegOperands(*Div, TII, TRI, RBI))
+      return false;
+
+    // Quotient in HL, remainder in DE
+    Register ResultReg = IsRem ? Z80::DE : Z80::HL;
+    auto CopyResult = MIB.buildCopy(DstReg, ResultReg);
+    if (!RBI.constrainGenericRegister(DstReg, Z80::R16RegClass, MRI))
+      return false;
+    I.eraseFromParent();
+    return true;
+  }
+
+  return false;
+}
+
+bool Z80InstructionSelector::selectIntrinsicWithSideEffects(
+    MachineInstr &I, MachineRegisterInfo &MRI) const {
+  unsigned IntrinID = I.getIntrinsicID();
+  switch (IntrinID) {
+  case Intrinsic::z80_raise: {
+    if (!STI.hasCoroutine())
+      return false;
+    unsigned TaskNum = I.getOperand(1).getImm();
+    static const unsigned RaiseOps[] = {
+        Z80::RAISE_0, Z80::RAISE_1, Z80::RAISE_2, Z80::RAISE_3,
+        Z80::RAISE_4, Z80::RAISE_5, Z80::RAISE_6, Z80::RAISE_7,
+    };
+    if (TaskNum > 7)
+      return false;
+    MachineIRBuilder MIB(I);
+    MIB.buildInstr(RaiseOps[TaskNum]);
+    I.eraseFromParent();
+    return true;
+  }
+  case Intrinsic::z80_ldpc: {
+    if (!STI.hasCoroutine())
+      return false;
+    unsigned TaskNum = I.getOperand(1).getImm();
+    static const unsigned LdpcOps[] = {
+        Z80::LDPC_0, Z80::LDPC_1, Z80::LDPC_2, Z80::LDPC_3,
+        Z80::LDPC_4, Z80::LDPC_5, Z80::LDPC_6, Z80::LDPC_7,
+    };
+    if (TaskNum > 7)
+      return false;
+    Register AddrReg = I.getOperand(2).getReg();
+    MachineIRBuilder MIB(I);
+    auto Copy = MIB.buildCopy(Register(Z80::HL), AddrReg);
+    if (!constrainSelectedInstRegOperands(*Copy, TII, TRI, RBI))
+      return false;
+    MIB.buildInstr(LdpcOps[TaskNum]);
+    I.eraseFromParent();
+    return true;
+  }
+  default:
+    return false;
+  }
 }
 
 bool Z80InstructionSelector::selectInlineAsm(MachineInstr &I,

@@ -32,6 +32,40 @@ def FeatureSli     : SubtargetFeature<"sli", "HasSliOp", "true",
                                       "Support SLI instruction">;
 
 //===----------------------------------------------------------------------===//
+// ZZ80 Subtarget features
+//===----------------------------------------------------------------------===//
+
+def FeatureHWMul       : SubtargetFeature<"hwmul", "HasHWMul", "true",
+                          "Hardware 8-bit multiply (MULT/MULTU)">;
+def FeatureHWMulW      : SubtargetFeature<"hwmulw", "HasHWMulW", "true",
+                          "Hardware 16-bit multiply (MULTW/MULTUW)">;
+def FeatureHWDiv       : SubtargetFeature<"hwdiv", "HasHWDiv", "true",
+                          "Hardware 8-bit divide (DIV/DIVU)">;
+def FeatureHWDivW      : SubtargetFeature<"hwdivw", "HasHWDivW", "true",
+                          "Hardware 16-bit divide (DIVW/DIVUW)">;
+def FeatureSPRelative  : SubtargetFeature<"sp-relative", "HasSPRelative",
+                          "true",
+                          "SP-relative addressing mode (SP+disp16)">;
+def FeaturePCRelative  : SubtargetFeature<"pc-relative", "HasPCRelative",
+                          "true",
+                          "PC-relative addressing mode (PC+disp16)">;
+def FeatureBaseIndex   : SubtargetFeature<"base-index", "HasBaseIndex",
+                          "true",
+                          "Base+index addressing (HL+IX, HL+IY, IX+IY)">;
+def Feature16BitALU    : SubtargetFeature<"alu16", "Has16BitALU", "true",
+                          "Extended 16-bit ALU (ADDw, SUBw, CPw, NEGw)">;
+def FeatureEXTS        : SubtargetFeature<"exts", "HasEXTS", "true",
+                          "Sign extension instructions (EXTS, EXTSw)">;
+def FeatureLDA         : SubtargetFeature<"lda", "HasLDA", "true",
+                          "Load address instruction (LDA)">;
+def FeatureEXReg       : SubtargetFeature<"ex-reg", "HasEXReg", "true",
+                          "Extended register exchange (EX A,r / EX H,L)">;
+def FeatureCoroutine   : SubtargetFeature<"coroutine", "HasCoroutine", "true",
+                          "Hardware coroutine support (RAISE/LDPC)">;
+def FeatureLDw         : SubtargetFeature<"ldw", "HasLDw", "true",
+                          "16-bit indexed load/store (LDw)">;
+
+//===----------------------------------------------------------------------===//
 // Z80 Subtarget state
 //===----------------------------------------------------------------------===//
 
@@ -51,6 +85,14 @@ def : Proc<"generic",     []>;
 def : Proc<"z80",         [FeatureUndoc, FeatureIdxHalf, FeatureSli]>;
 def : Proc<"z180",        [FeatureZ180]>;
 def : Proc<"ez80",        [FeatureZ180, FeatureEZ80, FeatureIdxHalf]>;
+def : Proc<"zz80",        [FeatureUndoc, FeatureIdxHalf,
+                            FeatureHWMul, FeatureHWMulW,
+                            FeatureHWDiv, FeatureHWDivW,
+                            FeatureSPRelative, FeaturePCRelative,
+                            FeatureBaseIndex,
+                            Feature16BitALU, FeatureEXTS, FeatureLDA,
+                            FeatureEXReg, FeatureCoroutine,
+                            FeatureLDw]>;
 
 //===----------------------------------------------------------------------===//
 // Register File Description
