@@ -415,8 +415,9 @@ bool Terminal::SupportsUnicode() {
   const char *lang_var = std::getenv("LANG");
   if (!lang_var)
     return false;
-  g_result =
-      llvm::StringRef(lang_var).lower().find("utf-8") != std::string::npos;
+  std::string lower_lang_var = llvm::StringRef(lang_var).lower();
+  g_result = lower_lang_var.find("utf-8") != std::string::npos ||
+             lower_lang_var.find("utf8") != std::string::npos;
   return g_result.value();
 #endif
 }
