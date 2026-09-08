@@ -1463,7 +1463,11 @@ enum DILMode {
   eDILModeLegacy,
   /// Allowed: everything supported by DIL.
   /// \see lldb/docs/dil-expr-lang.ebnf
-  eDILModeFull
+  eDILModeFull,
+  /// Allowed: everything supported by DIL, with zig quoted identifiers also
+  ///          allowed in an `id_expression`.
+  /// Disallowed: operators: '->', '::'.
+  eDILModeZig
 };
 
 /// When the Process plugin can retrieve information

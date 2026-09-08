@@ -199,6 +199,9 @@ public:
   LLVM_ABI std::optional<uint64_t> getRangesBaseAttribute() const;
   LLVM_ABI std::optional<uint64_t> getLocBaseAttribute() const;
 
+  /// Retrieves DW_AT_low_pc.
+  std::optional<object::SectionedAddress> getLowPC() const;
+
   /// Get the DW_AT_high_pc attribute value as an address.
   ///
   /// In DWARF version 4 and later the high PC can be encoded as an offset from
@@ -211,7 +214,7 @@ public:
   /// \returns an optional address value for the attribute.
   LLVM_ABI std::optional<uint64_t> getHighPC(uint64_t LowPC) const;
 
-  /// Retrieves DW_AT_low_pc and DW_AT_high_pc from CU.
+  /// Retrieves DW_AT_low_pc and DW_AT_high_pc.
   /// Returns true if both attributes are present.
   LLVM_ABI bool getLowAndHighPC(uint64_t &LowPC, uint64_t &HighPC,
                                 uint64_t &SectionIndex) const;
@@ -263,7 +266,9 @@ public:
   /// a subprogram. This may be fetched from specification or abstract origin
   /// for this subprogram by resolving DW_AT_sepcification or
   /// DW_AT_abstract_origin references if necessary.
-  LLVM_ABI uint64_t getDeclLine() const;
+  LLVM_ABI std::optional<uint64_t> getDeclLine() const;
+  LLVM_ABI std::optional<uint64_t> getDeclColumn() const;
+  LLVM_ABI std::optional<uint64_t> getDeclFileIndex() const;
   LLVM_ABI std::string
   getDeclFile(DILineInfoSpecifier::FileLineInfoKind Kind) const;
 

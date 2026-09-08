@@ -10,6 +10,7 @@
 #define LLDB_SOURCE_PLUGINS_SYMBOLFILE_DWARF_DWARFFORMVALUE_H
 
 #include "DWARFDataExtractor.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/DebugInfo/DWARF/DWARFFormValue.h"
 #include <optional>
 
@@ -31,11 +32,11 @@ public:
   };
 
   DWARFFormValue() = default;
-  DWARFFormValue(const DWARFUnit *unit) : m_unit(unit) {}
-  DWARFFormValue(const DWARFUnit *unit, dw_form_t form)
+  DWARFFormValue(DWARFUnit *unit) : m_unit(unit) {}
+  DWARFFormValue(DWARFUnit *unit, dw_form_t form)
       : m_unit(unit), m_form(form) {}
-  const DWARFUnit *GetUnit() const { return m_unit; }
-  void SetUnit(const DWARFUnit *unit) { m_unit = unit; }
+  DWARFUnit *GetUnit() const { return m_unit; }
+  void SetUnit(DWARFUnit *unit) { m_unit = unit; }
   dw_form_t Form() const { return m_form; }
   dw_form_t &FormRef() { return m_form; }
   void SetForm(dw_form_t form) { m_form = form; }
@@ -81,11 +82,12 @@ public:
   std::optional<uint64_t> getAsUnsignedConstant() const;
   std::optional<int64_t> getAsSignedConstant() const;
   const char *getAsCString() const { return AsCString(); }
+  std::optional<llvm::ArrayRef<uint8_t>> getAsBlock() const;
 
 protected:
   // Compile unit where m_value was located.
   // It may be different from compile unit where m_value refers to.
-  const DWARFUnit *m_unit = nullptr; // Unit for this form
+  DWARFUnit *m_unit = nullptr;       // Unit for this form
   dw_form_t m_form = dw_form_t(0);   // Form for this value
   ValueType m_value;                 // Contains all data for the form
 };

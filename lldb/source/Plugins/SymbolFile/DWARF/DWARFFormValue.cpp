@@ -600,6 +600,12 @@ std::optional<int64_t> DWARFFormValue::getAsSignedConstant() const {
   }
 }
 
+std::optional<llvm::ArrayRef<uint8_t>> DWARFFormValue::getAsBlock() const {
+  if (!IsBlockForm(m_form) || m_form == llvm::dwarf::DW_FORM_data16)
+    return std::nullopt;
+  return llvm::ArrayRef(BlockData(), Unsigned());
+}
+
 const uint8_t *DWARFFormValue::BlockData() const { return m_value.data; }
 
 bool DWARFFormValue::IsBlockForm(const dw_form_t form) {

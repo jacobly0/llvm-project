@@ -348,7 +348,7 @@ lldb::SBValueList SBBlock::GetVariables(lldb::SBTarget &target, bool arguments,
             if (add_variable) {
               if (target_sp)
                 value_list.Append(
-                    ValueObjectVariable::Create(target_sp.get(), variable_sp));
+                    variable_sp->CreateValueObject(target_sp.get()));
             }
           }
         }

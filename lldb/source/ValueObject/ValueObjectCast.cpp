@@ -49,6 +49,10 @@ llvm::Expected<uint64_t> ValueObjectCast::GetByteSize() {
   ExecutionContext exe_ctx(GetExecutionContextRef());
   return m_value.GetValueByteSize(nullptr, &exe_ctx);
 }
+llvm::Expected<uint64_t> ValueObjectCast::GetBitSize() {
+  ExecutionContext exe_ctx(GetExecutionContextRef());
+  return m_value.GetValueBitSize(nullptr, &exe_ctx);
+}
 
 lldb::ValueType ValueObjectCast::GetValueType() const {
   // Let our parent answer global, local, argument, etc...

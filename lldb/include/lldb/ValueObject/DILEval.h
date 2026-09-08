@@ -23,7 +23,7 @@ namespace lldb_private::dil {
 /// variables, and create and return an IdentifierInfo object containing all
 /// the relevant information about that object (for DIL parsing and
 /// evaluating).
-lldb::ValueObjectSP LookupIdentifier(llvm::StringRef name_ref,
+lldb::ValueObjectSP LookupIdentifier(llvm::StringRef name_ref, bool quoted,
                                      std::shared_ptr<StackFrame> frame_sp,
                                      lldb::DynamicValueType use_dynamic);
 
@@ -32,6 +32,7 @@ lldb::ValueObjectSP LookupIdentifier(llvm::StringRef name_ref,
 /// create and return an IdentifierInfo object containing all the relevant
 /// information about it.
 lldb::ValueObjectSP LookupGlobalIdentifier(llvm::StringRef name_ref,
+                                           bool quoted,
                                            std::shared_ptr<StackFrame> frame_sp,
                                            lldb::TargetSP target_sp,
                                            lldb::DynamicValueType use_dynamic);

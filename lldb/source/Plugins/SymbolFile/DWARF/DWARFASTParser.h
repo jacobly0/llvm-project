@@ -29,7 +29,7 @@ class SymbolFileDWARF;
 
 class DWARFASTParser {
 public:
-  enum class Kind { DWARFASTParserClang };
+  enum class Kind { DWARFASTParserClang, DWARFASTParserZig };
   DWARFASTParser(Kind kind) : m_kind(kind) {}
 
   virtual ~DWARFASTParser() = default;
@@ -39,6 +39,10 @@ public:
                                           bool *type_is_new_ptr) = 0;
 
   virtual ConstString ConstructDemangledNameFromDWARF(const DWARFDIE &die) = 0;
+
+  virtual lldb::VariableSP
+  ParseVariableFromDWARF(const SymbolContext &sc, const DWARFDIE &die,
+                         const lldb::addr_t func_low_pc) = 0;
 
   virtual Function *ParseFunctionFromDWARF(CompileUnit &comp_unit,
                                            const DWARFDIE &die,

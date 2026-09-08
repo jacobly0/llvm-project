@@ -517,8 +517,8 @@ ValueObject *ValueObject::CreateChildAtIndex(size_t idx) {
   bool omit_empty_base_classes = true;
   bool ignore_array_bounds = false;
   std::string child_name;
-  uint32_t child_byte_size = 0;
-  int32_t child_byte_offset = 0;
+  uint64_t child_bit_size = 0;
+  int64_t child_bit_offset = 0;
   uint32_t child_bitfield_bit_size = 0;
   uint32_t child_bitfield_bit_offset = 0;
   bool child_is_base_class = false;
@@ -531,7 +531,7 @@ ValueObject *ValueObject::CreateChildAtIndex(size_t idx) {
   auto child_compiler_type_or_err =
       GetCompilerType().GetChildCompilerTypeAtIndex(
           &exe_ctx, idx, transparent_pointers, omit_empty_base_classes,
-          ignore_array_bounds, child_name, child_byte_size, child_byte_offset,
+          ignore_array_bounds, child_name, child_bit_size, child_bit_offset,
           child_bitfield_bit_size, child_bitfield_bit_offset,
           child_is_base_class, child_is_deref_of_parent, this, language_flags);
   if (!child_compiler_type_or_err || !child_compiler_type_or_err->IsValid()) {
@@ -543,7 +543,7 @@ ValueObject *ValueObject::CreateChildAtIndex(size_t idx) {
 
   return new ValueObjectChild(
       *this, *child_compiler_type_or_err, ConstString(child_name),
-      child_byte_size, child_byte_offset, child_bitfield_bit_size,
+      child_bit_size, child_bit_offset, child_bitfield_bit_size,
       child_bitfield_bit_offset, child_is_base_class, child_is_deref_of_parent,
       eAddressTypeInvalid, language_flags);
 }
@@ -552,8 +552,8 @@ ValueObject *ValueObject::CreateSyntheticArrayMember(size_t idx) {
   bool omit_empty_base_classes = true;
   bool ignore_array_bounds = true;
   std::string child_name;
-  uint32_t child_byte_size = 0;
-  int32_t child_byte_offset = 0;
+  uint64_t child_bit_size = 0;
+  int64_t child_bit_offset = 0;
   uint32_t child_bitfield_bit_size = 0;
   uint32_t child_bitfield_bit_offset = 0;
   bool child_is_base_class = false;
@@ -566,7 +566,7 @@ ValueObject *ValueObject::CreateSyntheticArrayMember(size_t idx) {
   auto child_compiler_type_or_err =
       GetCompilerType().GetChildCompilerTypeAtIndex(
           &exe_ctx, 0, transparent_pointers, omit_empty_base_classes,
-          ignore_array_bounds, child_name, child_byte_size, child_byte_offset,
+          ignore_array_bounds, child_name, child_bit_size, child_bit_offset,
           child_bitfield_bit_size, child_bitfield_bit_offset,
           child_is_base_class, child_is_deref_of_parent, this, language_flags);
   if (!child_compiler_type_or_err) {
@@ -577,11 +577,11 @@ ValueObject *ValueObject::CreateSyntheticArrayMember(size_t idx) {
   }
 
   if (child_compiler_type_or_err->IsValid()) {
-    child_byte_offset += child_byte_size * idx;
+    child_bit_offset += idx * child_bit_size;
 
     return new ValueObjectChild(
         *this, *child_compiler_type_or_err, ConstString(child_name),
-        child_byte_size, child_byte_offset, child_bitfield_bit_size,
+        child_bit_size, child_bit_offset, child_bitfield_bit_size,
         child_bitfield_bit_offset, child_is_base_class,
         child_is_deref_of_parent, eAddressTypeInvalid, language_flags);
   }
@@ -1901,9 +1901,8 @@ ValueObjectSP ValueObject::GetSyntheticBitFieldChild(uint32_t from, uint32_t to,
       // one and cache it for any future reference.
       ValueObjectChild *synthetic_child = new ValueObjectChild(
           *this, GetCompilerType(), index_const_str,
-          llvm::expectedToOptional(GetByteSize()).value_or(0), 0,
-          bit_field_size, bit_field_offset, false, false, eAddressTypeInvalid,
-          0);
+          llvm::expectedToOptional(GetBitSize()).value_or(0), 0, bit_field_size,
+          bit_field_offset, false, false, eAddressTypeInvalid, 0);
 
       // Cache the value if we got one back...
       if (synthetic_child) {
@@ -1942,9 +1941,9 @@ ValueObjectSP ValueObject::GetSyntheticChildAtOffset(
       type.GetByteSize(exe_ctx.GetBestExecutionContextScope()));
   if (!size)
     return {};
-  ValueObjectChild *synthetic_child =
-      new ValueObjectChild(*this, type, name_const_str, *size, offset, 0, 0,
-                           false, false, eAddressTypeInvalid, 0);
+  ValueObjectChild *synthetic_child = new ValueObjectChild(
+      *this, type, name_const_str, *size * UINT64_C(8), offset * INT64_C(8), 0,
+      0, false, false, eAddressTypeInvalid, 0);
   if (synthetic_child) {
     AddSyntheticChild(name_const_str, synthetic_child);
     synthetic_child_sp = synthetic_child->GetSP();
@@ -1985,9 +1984,9 @@ ValueObjectSP ValueObject::GetSyntheticBase(uint32_t offset,
       type.GetByteSize(exe_ctx.GetBestExecutionContextScope()));
   if (!size)
     return {};
-  ValueObjectChild *synthetic_child =
-      new ValueObjectChild(*this, type, name_const_str, *size, offset, 0, 0,
-                           is_base_class, false, eAddressTypeInvalid, 0);
+  ValueObjectChild *synthetic_child = new ValueObjectChild(
+      *this, type, name_const_str, *size * UINT64_C(8), offset * INT64_C(8), 0,
+      0, is_base_class, false, eAddressTypeInvalid, 0);
   if (synthetic_child) {
     AddSyntheticChild(name_const_str, synthetic_child);
     synthetic_child_sp = synthetic_child->GetSP();
@@ -2818,8 +2817,8 @@ ValueObjectSP ValueObject::Dereference(Status &error) {
     return m_deref_valobj->GetSP();
 
   std::string deref_name_str;
-  uint32_t deref_byte_size = 0;
-  int32_t deref_byte_offset = 0;
+  uint64_t deref_bit_size = 0;
+  int64_t deref_bit_offset = 0;
   CompilerType compiler_type = GetCompilerType();
   uint64_t language_flags = 0;
 
@@ -2827,7 +2826,7 @@ ValueObjectSP ValueObject::Dereference(Status &error) {
 
   CompilerType deref_compiler_type;
   auto deref_compiler_type_or_err = compiler_type.GetDereferencedType(
-      &exe_ctx, deref_name_str, deref_byte_size, deref_byte_offset, this,
+      &exe_ctx, deref_name_str, deref_bit_size, deref_bit_offset, this,
       language_flags);
 
   std::string deref_error;
@@ -2838,14 +2837,14 @@ ValueObjectSP ValueObject::Dereference(Status &error) {
     LLDB_LOG(GetLog(LLDBLog::Types), "could not find child: {0}", deref_error);
   }
 
-  if (deref_compiler_type && deref_byte_size) {
+  if (deref_compiler_type && deref_bit_size) {
     ConstString deref_name;
     if (!deref_name_str.empty())
       deref_name.SetCString(deref_name_str.c_str());
 
     m_deref_valobj =
         new ValueObjectChild(*this, deref_compiler_type, deref_name,
-                             deref_byte_size, deref_byte_offset, 0, 0, false,
+                             deref_bit_size, deref_bit_offset, 0, 0, false,
                              true, eAddressTypeInvalid, language_flags);
   }
 
@@ -2863,10 +2862,10 @@ ValueObjectSP ValueObject::Dereference(Status &error) {
         if (!deref_name_str.empty())
           deref_name.SetCString(deref_name_str.c_str());
 
-        m_deref_valobj = new ValueObjectChild(
-            *this, deref_compiler_type, deref_name, deref_byte_size,
-            deref_byte_offset, 0, 0, false, true, eAddressTypeInvalid,
-            language_flags);
+        m_deref_valobj =
+            new ValueObjectChild(*this, deref_compiler_type, deref_name,
+                                 deref_bit_size, deref_bit_offset, 0, 0, false,
+                                 true, eAddressTypeInvalid, language_flags);
       }
     }
   }

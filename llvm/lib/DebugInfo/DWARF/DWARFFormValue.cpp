@@ -443,9 +443,7 @@ void DWARFFormValue::dump(raw_ostream &OS, DIDumpOptions DumpOpts) const {
     OS << format_bytes(ArrayRef<uint8_t>(Value.data, 16), std::nullopt, 16, 16);
     break;
   case DW_FORM_string:
-    OS << '"';
-    OS.write_escaped(Value.cstr);
-    OS << '"';
+    dumpString(OS);
     break;
   case DW_FORM_exprloc:
   case DW_FORM_block:

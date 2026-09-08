@@ -64,6 +64,8 @@ bool DWARFDebugInfoEntry::extractFast(const DWARFUnit &U, uint64_t *OffsetPtr,
     *OffsetPtr = Offset;
     return false;
   }
+  HasParentAttr = AbbrevDecl->hasParentAttr();
+
   // See if all attributes in this DIE have fixed byte sizes. If so, we can
   // just add this size to the offset to skip to the next DIE.
   if (std::optional<size_t> FixedSize =

@@ -22,18 +22,21 @@ class DWARFDataExtractor;
 /// DWARFDebugInfoEntry - A DIE with only the minimum required data.
 class DWARFDebugInfoEntry {
   /// Offset within the .debug_info of the start of this entry.
-  uint64_t Offset = 0;
+  uint64_t Offset : 63;
+
+  bool HasParentAttr : 1;
 
   /// Index of the parent die. UINT32_MAX if there is no parent.
-  uint32_t ParentIdx = UINT32_MAX;
+  uint32_t ParentIdx;
 
   /// Index of the sibling die. Zero if there is no sibling.
-  uint32_t SiblingIdx = 0;
+  uint32_t SiblingIdx;
 
   const DWARFAbbreviationDeclaration *AbbrevDecl = nullptr;
 
 public:
-  DWARFDebugInfoEntry() = default;
+  DWARFDebugInfoEntry()
+      : Offset(0), HasParentAttr(false), ParentIdx(UINT32_MAX), SiblingIdx(0) {}
 
   /// Extracts a debug info entry, which is a child of a given unit,
   /// starting at a given offset. If DIE can't be extracted, returns false and
@@ -44,6 +47,8 @@ public:
                             uint64_t UEndOffset, uint32_t ParentIdx);
 
   uint64_t getOffset() const { return Offset; }
+
+  bool hasParentAttr() const { return HasParentAttr; }
 
   /// Returns index of the parent die.
   std::optional<uint32_t> getParentIdx() const {

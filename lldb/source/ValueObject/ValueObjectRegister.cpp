@@ -85,8 +85,6 @@ ValueObjectRegisterSet::CalculateNumChildren(uint32_t max) {
   return 0;
 }
 
-llvm::Expected<uint64_t> ValueObjectRegisterSet::GetByteSize() { return 0; }
-
 bool ValueObjectRegisterSet::UpdateValue() {
   m_error.Clear();
   SetValueDidChange(false);
@@ -226,10 +224,6 @@ ValueObjectRegister::CalculateNumChildren(uint32_t max) {
   if (!children_count)
     return children_count;
   return *children_count <= max ? *children_count : max;
-}
-
-llvm::Expected<uint64_t> ValueObjectRegister::GetByteSize() {
-  return m_reg_info.byte_size;
 }
 
 bool ValueObjectRegister::UpdateValue() {
