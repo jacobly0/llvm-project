@@ -34,6 +34,7 @@ public:
     float_constant,
     greatergreater,
     identifier,
+    zig_quoted_identifier,
     integer_constant,
     kw_false,
     kw_true,
@@ -50,6 +51,7 @@ public:
     r_square,
     slash,
     star,
+    question,
   };
 
   Token(Kind kind, std::string spelling, uint32_t start)

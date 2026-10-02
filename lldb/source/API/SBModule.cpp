@@ -421,7 +421,7 @@ SBValueList SBModule::FindGlobalVariables(SBTarget &target, const char *name,
     for (const VariableSP &var_sp : variable_list) {
       lldb::ValueObjectSP valobj_sp;
       TargetSP target_sp(target.GetSP());
-      valobj_sp = ValueObjectVariable::Create(target_sp.get(), var_sp);
+      valobj_sp = var_sp->CreateValueObject(target_sp.get());
       if (valobj_sp)
         sb_value_list.Append(SBValue(valobj_sp));
     }

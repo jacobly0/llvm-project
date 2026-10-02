@@ -99,7 +99,7 @@ public:
       return *this;
     }
 
-    uint32_t GetValue() { return m_flags; }
+    uint32_t GetValue() const { return m_flags; }
 
     void SetValue(uint32_t value) { m_flags = value; }
 
@@ -129,11 +129,11 @@ public:
 
   void SetNonCacheable(bool value) { m_flags.SetNonCacheable(value); }
 
-  uint32_t GetOptions() { return m_flags.GetValue(); }
+  uint32_t GetOptions() const { return m_flags.GetValue(); }
 
   void SetOptions(uint32_t value) { m_flags.SetValue(value); }
 
-  uint32_t GetPtrMatchDepth() { return m_ptr_match_depth; }
+  uint32_t GetPtrMatchDepth() const { return m_ptr_match_depth; }
 
   void SetPtrMatchDepth(uint32_t value) { m_ptr_match_depth = value; }
 
@@ -141,7 +141,7 @@ public:
 
   enum class Type { eTypeUnknown, eTypeFormat, eTypeEnum };
 
-  virtual Type GetType() { return Type::eTypeUnknown; }
+  virtual Type GetType() const { return Type::eTypeUnknown; }
 
   // we are using a ValueObject* instead of a ValueObjectSP because we do not
   // need to hold on to this for extended periods of time and we trust the
@@ -149,7 +149,7 @@ public:
   // generate its value
   virtual bool FormatObject(ValueObject *valobj, std::string &dest) const = 0;
 
-  virtual std::string GetDescription() = 0;
+  virtual std::string GetDescription() const = 0;
 
 protected:
   Flags m_flags;
@@ -174,13 +174,13 @@ public:
 
   void SetFormat(lldb::Format fmt) { m_format = fmt; }
 
-  TypeFormatImpl::Type GetType() override {
+  TypeFormatImpl::Type GetType() const override {
     return TypeFormatImpl::Type::eTypeFormat;
   }
 
   bool FormatObject(ValueObject *valobj, std::string &dest) const override;
 
-  std::string GetDescription() override;
+  std::string GetDescription() const override;
 
 protected:
   lldb::Format m_format;
@@ -204,13 +204,13 @@ public:
 
   void SetTypeName(ConstString enum_type) { m_enum_type = enum_type; }
 
-  TypeFormatImpl::Type GetType() override {
+  TypeFormatImpl::Type GetType() const override {
     return TypeFormatImpl::Type::eTypeEnum;
   }
 
   bool FormatObject(ValueObject *valobj, std::string &dest) const override;
 
-  std::string GetDescription() override;
+  std::string GetDescription() const override;
 
 protected:
   ConstString m_enum_type;

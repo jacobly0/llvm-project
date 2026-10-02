@@ -15,6 +15,7 @@
 #include "lldb/Utility/Status.h"
 #include "lldb/ValueObject/DILParser.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/Support/ConvertUTF.h"
 
 namespace lldb_private::dil {
 
@@ -38,6 +39,8 @@ llvm::StringRef Token::GetTokenName(Kind kind) {
     return "greatergreater";
   case Kind::identifier:
     return "identifier";
+  case Kind::zig_quoted_identifier:
+    return "zig_quoted_identifier";
   case Kind::integer_constant:
     return "integer_constant";
   case Kind::kw_false:
@@ -54,7 +57,7 @@ llvm::StringRef Token::GetTokenName(Kind kind) {
     return "minus";
   case Kind::minusequal:
     return "minusequal";
-  case Token::percent:
+  case Kind::percent:
     return "percent";
   case Kind::period:
     return "period";
@@ -66,10 +69,12 @@ llvm::StringRef Token::GetTokenName(Kind kind) {
     return "r_paren";
   case Kind::r_square:
     return "r_square";
-  case Token::slash:
+  case Kind::slash:
     return "slash";
-  case Token::star:
+  case Kind::star:
     return "star";
+  case Kind::question:
+    return "question";
   }
   llvm_unreachable("Unknown token name");
 }
@@ -92,6 +97,70 @@ static std::optional<llvm::StringRef> IsWord(llvm::StringRef expr,
     return std::nullopt;
   remainder = remainder.drop_front(candidate.size());
   return candidate;
+}
+
+static std::optional<std::string> IsZigQuotedWord(llvm::StringRef expr,
+                                                  llvm::StringRef &remainder) {
+  llvm::StringRef candidate = remainder;
+  if (!candidate.consume_front("@\""))
+    return std::nullopt;
+  std::string spelling;
+  while (true) {
+    if (candidate.empty())
+      return std::nullopt;
+    char c = candidate.front();
+    candidate = candidate.drop_front();
+    switch (c) {
+    default:
+      spelling.push_back(c);
+      break;
+    case '\"':
+      remainder = candidate;
+      return spelling;
+    case '\\':
+      c = candidate.front();
+      candidate = candidate.drop_front();
+      switch (c) {
+      default:
+        return std::nullopt;
+      case 'n':
+        spelling.push_back('\n');
+        break;
+      case 'r':
+        spelling.push_back('\r');
+        break;
+      case 't':
+        spelling.push_back('\t');
+        break;
+      case '\\':
+      case '\'':
+      case '\"':
+        spelling.push_back(c);
+        break;
+      case 'x': {
+        uint8_t byte;
+        if (candidate.take_front(2).getAsInteger(16, byte))
+          return std::nullopt;
+        candidate = candidate.drop_front(2);
+        spelling.push_back(byte);
+        break;
+      }
+      case 'u': {
+        uint32_t codepoint;
+        size_t spellingPos = spelling.size();
+        spelling.resize(spellingPos + UNI_MAX_UTF8_BYTES_PER_CODE_POINT);
+        char *spellingPtr = &spelling[spellingPos];
+        if (!candidate.consume_front("{") ||
+            candidate.consumeInteger(16, codepoint) ||
+            !llvm::ConvertCodePointToUTF8(codepoint, spellingPtr) ||
+            !candidate.consume_front("}"))
+          return std::nullopt;
+        spelling.resize(spellingPtr - spelling.data());
+        break;
+      }
+      }
+    }
+  }
 }
 
 static bool IsNumberBodyChar(char ch) {
@@ -145,6 +214,18 @@ static llvm::Error IsNotAllowedByMode(llvm::StringRef expr, Token token,
     }
     break;
   case lldb::eDILModeFull:
+    if (token.IsOneOf({Token::zig_quoted_identifier, Token::question})) {
+      return llvm::make_error<DILDiagnosticError>(
+          expr, llvm::formatv("{0} is not allowed in DIL full mode", token),
+          token.GetLocation());
+    }
+    break;
+  case lldb::eDILModeZig:
+    if (token.IsOneOf({Token::arrow, Token::coloncolon})) {
+      return llvm::make_error<DILDiagnosticError>(
+          expr, llvm::formatv("{0} is not allowed in DIL zig mode", token),
+          token.GetLocation());
+    }
     break;
   }
   return llvm::Error::success();
@@ -184,14 +265,18 @@ llvm::Expected<Token> DILLexer::Lex(llvm::StringRef expr,
     auto kind = isFloat ? Token::float_constant : Token::integer_constant;
     return Token(kind, maybe_number->str(), position);
   }
-  std::optional<llvm::StringRef> maybe_word = IsWord(expr, remainder);
-  if (maybe_word) {
+  if (std::optional<llvm::StringRef> maybe_word = IsWord(expr, remainder)) {
     llvm::StringRef word = *maybe_word;
     Token::Kind kind = llvm::StringSwitch<Token::Kind>(word)
                            .Case("false", Token::kw_false)
                            .Case("true", Token::kw_true)
                            .Default(Token::identifier);
     return Token(kind, word.str(), position);
+  }
+  if (std::optional<std::string> maybe_zig_quoted_word =
+          IsZigQuotedWord(expr, remainder)) {
+    return Token(Token::zig_quoted_identifier, *maybe_zig_quoted_word,
+                 position);
   }
 
   // IMPORTANT: If two or more tokens share the same prefix, the tokens need to
@@ -217,6 +302,7 @@ llvm::Expected<Token> DILLexer::Lex(llvm::StringRef expr,
       {Token::r_square, "]"},
       {Token::slash, "/"},
       {Token::star, "*"},
+      {Token::question, "?"},
   };
   for (auto [kind, str] : operators) {
     if (remainder.consume_front(str))

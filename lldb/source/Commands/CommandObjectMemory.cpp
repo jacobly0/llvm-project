@@ -484,6 +484,16 @@ protected:
               user_defined_types.emplace(*type);
             }
           }
+
+          if (lang == eLanguageTypeZig) {
+            ValueObjectSP type_valobj;
+            EvaluateExpressionOptions options;
+            options.SetLanguage(lang);
+            if (target->EvaluateExpression(view_as_type_cstr, exe_scope,
+                                           type_valobj) == eExpressionCompleted)
+              if (CompilerType type = type_valobj->GetValueAsCompilerType())
+                user_defined_types.emplace(type);
+          }
         }
 
         if (user_defined_types.size() > 1) {

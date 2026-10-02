@@ -32,6 +32,7 @@
 #include "lldb/Symbol/SymbolFile.h"
 #include "lldb/Symbol/TypeList.h"
 #include "lldb/Symbol/TypeMap.h"
+#include "lldb/Symbol/Variable.h"
 #include "lldb/Symbol/VariableList.h"
 #include "lldb/Target/Language.h"
 #include "lldb/Utility/LLDBAssert.h"
@@ -50,6 +51,7 @@
 #include "llvm/DebugInfo/DWARF/DWARFAddressRange.h"
 #include "llvm/DebugInfo/DWARF/DWARFTypePrinter.h"
 #include "llvm/Demangle/Demangle.h"
+#include "llvm/Support/FormatAdapters.h"
 
 #include <map>
 #include <memory>
@@ -410,7 +412,8 @@ static void PrepareContextToReceiveMembers(TypeSystemClang &ast,
   }
 }
 
-ParsedDWARFTypeAttributes::ParsedDWARFTypeAttributes(const DWARFDIE &die) {
+ParsedDWARFTypeAttributesClang::ParsedDWARFTypeAttributesClang(
+    const DWARFDIE &die) {
   DWARFAttributes attributes = die.GetAttributes();
   for (size_t i = 0; i < attributes.Size(); ++i) {
     dw_attr_t attr = attributes.AttributeAtIndex(i);
@@ -591,7 +594,7 @@ TypeSP DWARFASTParserClang::ParseTypeFromDWARF(const SymbolContext &sc,
     return it->getSecond()->shared_from_this();
   }
 
-  ParsedDWARFTypeAttributes attrs(die);
+  ParsedDWARFTypeAttributesClang attrs(die);
 
   TypeSP type_sp;
   if (DWARFDIE signature_die = attrs.signature.Reference()) {
@@ -724,7 +727,7 @@ static TypePayloadClang GetPtrAuthMofidierPayload(const DWARFDIE &die) {
 lldb::TypeSP
 DWARFASTParserClang::ParseTypeModifier(const SymbolContext &sc,
                                        const DWARFDIE &die,
-                                       ParsedDWARFTypeAttributes &attrs) {
+                                       ParsedDWARFTypeAttributesClang &attrs) {
   Log *log = GetLog(DWARFLog::TypeCompletion | DWARFLog::Lookups);
   SymbolFileDWARF *dwarf = die.GetDWARF();
   const dw_tag_t tag = die.Tag();
@@ -969,8 +972,8 @@ void DWARFASTParserClang::MapDeclDIEToDefDIE(
     const lldb_private::plugin::dwarf::DWARFDIE &def_die) {
   LinkDeclContextToDIE(GetCachedClangDeclContextForDIE(decl_die), def_die);
   SymbolFileDWARF *dwarf = def_die.GetDWARF();
-  ParsedDWARFTypeAttributes decl_attrs(decl_die);
-  ParsedDWARFTypeAttributes def_attrs(def_die);
+  ParsedDWARFTypeAttributesClang decl_attrs(decl_die);
+  ParsedDWARFTypeAttributesClang def_attrs(def_die);
   ConstString unique_typename(decl_attrs.name);
   Declaration decl_declaration(decl_attrs.decl);
   GetUniqueTypeNameAndDeclaration(
@@ -994,7 +997,7 @@ void DWARFASTParserClang::MapDeclDIEToDefDIE(
 
 TypeSP DWARFASTParserClang::ParseEnum(const SymbolContext &sc,
                                       const DWARFDIE &decl_die,
-                                      ParsedDWARFTypeAttributes &attrs) {
+                                      ParsedDWARFTypeAttributesClang &attrs) {
   Log *log = GetLog(DWARFLog::TypeCompletion | DWARFLog::Lookups);
   SymbolFileDWARF *dwarf = decl_die.GetDWARF();
   const dw_tag_t tag = decl_die.Tag();
@@ -1033,7 +1036,7 @@ TypeSP DWARFASTParserClang::ParseEnum(const SymbolContext &sc,
         return nullptr;
       return it->getSecond()->shared_from_this();
     }
-    attrs = ParsedDWARFTypeAttributes(def_die);
+    attrs = ParsedDWARFTypeAttributesClang(def_die);
   } else {
     // No definition found. Proceed with the declaration die. We can use it to
     // create a forward-declared type.
@@ -1087,8 +1090,8 @@ TypeSP DWARFASTParserClang::ParseEnum(const SymbolContext &sc,
   return type_sp;
 }
 
-static clang::CallingConv
-ConvertDWARFCallingConventionToClang(const ParsedDWARFTypeAttributes &attrs) {
+static clang::CallingConv ConvertDWARFCallingConventionToClang(
+    const ParsedDWARFTypeAttributesClang &attrs) {
   switch (attrs.calling_convention) {
   case llvm::dwarf::DW_CC_normal:
     return clang::CC_C;
@@ -1119,7 +1122,7 @@ ConvertDWARFCallingConventionToClang(const ParsedDWARFTypeAttributes &attrs) {
 
 bool DWARFASTParserClang::ParseObjCMethod(
     const ObjCLanguage::ObjCMethodName &objc_method, const DWARFDIE &die,
-    CompilerType clang_type, const ParsedDWARFTypeAttributes &attrs,
+    CompilerType clang_type, const ParsedDWARFTypeAttributesClang &attrs,
     bool is_variadic) {
   SymbolFileDWARF *dwarf = die.GetDWARF();
   assert(dwarf);
@@ -1166,7 +1169,7 @@ bool DWARFASTParserClang::ParseObjCMethod(
 
 std::pair<bool, TypeSP> DWARFASTParserClang::ParseCXXMethod(
     const DWARFDIE &die, CompilerType clang_type,
-    const ParsedDWARFTypeAttributes &attrs, const DWARFDIE &decl_ctx_die,
+    const ParsedDWARFTypeAttributesClang &attrs, const DWARFDIE &decl_ctx_die,
     const DWARFDIE &object_parameter, bool &ignore_containing_context) {
   Log *log = GetLog(DWARFLog::TypeCompletion | DWARFLog::Lookups);
   SymbolFileDWARF *dwarf = die.GetDWARF();
@@ -1290,9 +1293,8 @@ std::pair<bool, TypeSP> DWARFASTParserClang::ParseCXXMethod(
   return {type_handled, nullptr};
 }
 
-TypeSP
-DWARFASTParserClang::ParseSubroutine(const DWARFDIE &die,
-                                     const ParsedDWARFTypeAttributes &attrs) {
+TypeSP DWARFASTParserClang::ParseSubroutine(
+    const DWARFDIE &die, const ParsedDWARFTypeAttributesClang &attrs) {
   Log *log = GetLog(DWARFLog::TypeCompletion | DWARFLog::Lookups);
 
   SymbolFileDWARF *dwarf = die.GetDWARF();
@@ -1466,9 +1468,8 @@ DWARFASTParserClang::ParseSubroutine(const DWARFDIE &die,
       Type::eEncodingIsUID, &attrs.decl, clang_type, Type::ResolveState::Full);
 }
 
-TypeSP
-DWARFASTParserClang::ParseArrayType(const DWARFDIE &die,
-                                    const ParsedDWARFTypeAttributes &attrs) {
+TypeSP DWARFASTParserClang::ParseArrayType(
+    const DWARFDIE &die, const ParsedDWARFTypeAttributesClang &attrs) {
   SymbolFileDWARF *dwarf = die.GetDWARF();
 
   DWARFDIE type_die = attrs.type.Reference();
@@ -1520,7 +1521,7 @@ DWARFASTParserClang::ParseArrayType(const DWARFDIE &die,
 }
 
 TypeSP DWARFASTParserClang::ParsePointerToMemberType(
-    const DWARFDIE &die, const ParsedDWARFTypeAttributes &attrs) {
+    const DWARFDIE &die, const ParsedDWARFTypeAttributesClang &attrs) {
   SymbolFileDWARF *dwarf = die.GetDWARF();
   Type *pointee_type = dwarf->ResolveTypeUID(attrs.type.Reference(), true);
   Type *class_type =
@@ -1749,7 +1750,7 @@ void DWARFASTParserClang::GetUniqueTypeNameAndDeclaration(
 
 TypeSP DWARFASTParserClang::ParseStructureLikeDIE(
     const SymbolContext &sc, const DWARFDIE &die,
-    const ParsedDWARFTypeAttributes &attrs) {
+    const ParsedDWARFTypeAttributesClang &attrs) {
   CompilerType clang_type;
   const dw_tag_t tag = die.Tag();
   SymbolFileDWARF *dwarf = die.GetDWARF();
@@ -2456,15 +2457,363 @@ DWARFASTParserClang::ConstructDemangledNameFromDWARF(const DWARFDIE &die) {
   return ConstString(sstr.GetString());
 }
 
+/// Walks transparent type wrappers following DW_AT_type and returns
+/// the first DW_AT_byte_size encountered along the chain.
+static std::optional<uint64_t> GetByteSizeFromTypeDIE(DWARFDIE die,
+                                                      unsigned max_depth = 64) {
+  // Bound the walk to guard against malformed/cyclic DWARF.
+  if (!die || !max_depth)
+    return std::nullopt;
+
+  if (std::optional<uint64_t> byte_size =
+          die.GetAttributeValueAsOptionalUnsigned(DW_AT_byte_size))
+    return byte_size;
+
+  switch (die.Tag()) {
+  case DW_TAG_const_type:
+  case DW_TAG_volatile_type:
+  case DW_TAG_restrict_type:
+  case DW_TAG_atomic_type:
+  case DW_TAG_typedef:
+    if (DWARFDIE next = die.GetAttributeValueAsReferenceDIE(DW_AT_type))
+      return GetByteSizeFromTypeDIE(next, max_depth - 1);
+    break;
+  default:
+    break;
+  }
+  return std::nullopt;
+}
+
+/// Global variables that are not initialized may have their address set to
+/// zero. Since multiple variables may have this address, we cannot apply the
+/// OSO relink address approach we normally use.
+/// However, the executable will have a matching symbol with a good address;
+/// this function attempts to find the correct address by looking into the
+/// executable's symbol table. If it succeeds, the expr_list is updated with
+/// the new address and the executable's symbol is returned.
+static Symbol *fixupExternalAddrZeroVariable(
+    SymbolFileDWARFDebugMap &debug_map_symfile, llvm::StringRef name,
+    DWARFExpressionList &expr_list, const DWARFDIE &die) {
+  ObjectFile *debug_map_objfile = debug_map_symfile.GetObjectFile();
+  if (!debug_map_objfile)
+    return nullptr;
+
+  Symtab *debug_map_symtab = debug_map_objfile->GetSymtab();
+  if (!debug_map_symtab)
+    return nullptr;
+  Symbol *exe_symbol = debug_map_symtab->FindFirstSymbolWithNameAndType(
+      ConstString(name), eSymbolTypeData, Symtab::eDebugYes,
+      Symtab::eVisibilityExtern);
+  if (!exe_symbol || !exe_symbol->ValueIsAddress())
+    return nullptr;
+  const addr_t exe_file_addr = exe_symbol->GetAddressRef().GetFileAddress();
+  if (exe_file_addr == LLDB_INVALID_ADDRESS)
+    return nullptr;
+
+  DWARFExpression *location = expr_list.GetMutableExpressionAtAddress();
+  if (location->Update_DW_OP_addr(die.GetCU(), exe_file_addr))
+    return exe_symbol;
+  return nullptr;
+}
+
+VariableSP
+DWARFASTParserClang::ParseVariableFromDWARF(const SymbolContext &sc,
+                                            const DWARFDIE &die,
+                                            const lldb::addr_t func_low_pc) {
+  const dw_tag_t tag = die.Tag();
+  ModuleSP clang_module_sp = GetContainingClangModule(die);
+
+  if (tag != DW_TAG_variable && tag != DW_TAG_constant &&
+      tag != DW_TAG_member && (tag != DW_TAG_formal_parameter || !sc.function))
+    return nullptr;
+
+  DWARFAttributes attributes = die.GetAttributes();
+  const char *name = nullptr;
+  const char *mangled = nullptr;
+  Declaration decl;
+  DWARFFormValue type_die_form;
+  bool is_external = false;
+  bool is_artificial = false;
+  std::optional<uint64_t> tag_offset = std::nullopt;
+  DWARFFormValue const_value_form, location_form;
+  Variable::RangeList scope_ranges;
+
+  for (size_t i = 0; i < attributes.Size(); ++i) {
+    dw_attr_t attr = attributes.AttributeAtIndex(i);
+    DWARFFormValue form_value;
+
+    if (!attributes.ExtractFormValueAtIndex(i, form_value))
+      continue;
+    switch (attr) {
+    case DW_AT_LLVM_tag_offset:
+      tag_offset = form_value.Unsigned();
+      break;
+    case DW_AT_decl_file:
+      decl.SetFile(
+          attributes.CompileUnitAtIndex(i)->GetFile(form_value.Unsigned()));
+      break;
+    case DW_AT_decl_line:
+      decl.SetLine(form_value.Unsigned());
+      break;
+    case DW_AT_decl_column:
+      decl.SetColumn(form_value.Unsigned());
+      break;
+    case DW_AT_name:
+      name = form_value.AsCString();
+      break;
+    case DW_AT_linkage_name:
+    case DW_AT_MIPS_linkage_name:
+      mangled = form_value.AsCString();
+      break;
+    case DW_AT_type:
+      // DW_AT_type on declaration may be less accurate than
+      // that of definition, so don't overwrite it.
+      if (!type_die_form.IsValid())
+        type_die_form = form_value;
+      break;
+    case DW_AT_external:
+      is_external = form_value.Boolean();
+      break;
+    case DW_AT_const_value:
+      const_value_form = form_value;
+      break;
+    case DW_AT_location:
+      location_form = form_value;
+      break;
+    case DW_AT_start_scope:
+      // TODO: Implement this.
+      break;
+    case DW_AT_artificial:
+      is_artificial = form_value.Boolean();
+      break;
+    case DW_AT_declaration:
+    case DW_AT_description:
+    case DW_AT_endianity:
+    case DW_AT_segment:
+    case DW_AT_specification:
+    case DW_AT_visibility:
+    default:
+    case DW_AT_abstract_origin:
+    case DW_AT_sibling:
+      break;
+    }
+  }
+
+  // Prefer DW_AT_location over DW_AT_const_value. Both can be emitted e.g.
+  // for static constexpr member variables -- DW_AT_const_value and
+  // DW_AT_location will both be present in the DIE defining the member.
+  bool location_is_const_value_data =
+      const_value_form.IsValid() && !location_form.IsValid();
+
+  DWARFExpressionList location_list = [&] {
+    if (location_form.IsValid())
+      return SymbolFileDWARF::GetExprListFromAtLocation(
+          location_form, clang_module_sp, die, func_low_pc);
+    if (const_value_form.IsValid())
+      return SymbolFileDWARF::GetExprListFromAtConstValue(const_value_form,
+                                                          clang_module_sp, die);
+    return DWARFExpressionList(clang_module_sp, DWARFExpression(), die.GetCU());
+  }();
+
+  SymbolFileDWARF *dwarf = die.GetDWARF();
+  const DWARFDIE parent_context_die =
+      dwarf->GetDeclContextDIEContainingDIE(die);
+  const DWARFDIE sc_parent_die = dwarf->GetParentSymbolContextDIE(die);
+  const dw_tag_t parent_tag = sc_parent_die.Tag();
+  bool is_static_member = (parent_tag == DW_TAG_compile_unit ||
+                           parent_tag == DW_TAG_partial_unit) &&
+                          (parent_context_die.Tag() == DW_TAG_class_type ||
+                           parent_context_die.Tag() == DW_TAG_structure_type);
+
+  ValueType scope = eValueTypeInvalid;
+  SymbolContextScope *symbol_context_scope = nullptr;
+
+  bool has_explicit_mangled = mangled != nullptr;
+  if (!mangled) {
+    // LLDB relies on the mangled name (DW_TAG_linkage_name or
+    // DW_AT_MIPS_linkage_name) to generate fully qualified names
+    // of global variables with commands like "frame var j". For
+    // example, if j were an int variable holding a value 4 and
+    // declared in a namespace B which in turn is contained in a
+    // namespace A, the command "frame var j" returns
+    //   "(int) A::B::j = 4".
+    // If the compiler does not emit a linkage name, we should be
+    // able to generate a fully qualified name from the
+    // declaration context.
+    if ((parent_tag == DW_TAG_compile_unit ||
+         parent_tag == DW_TAG_partial_unit) &&
+        Language::LanguageIsCPlusPlus(dwarf->GetLanguage(*die.GetCU())))
+      mangled = die.GetDWARFDeclContext()
+                    .GetQualifiedNameAsConstString()
+                    .GetCString();
+  }
+
+  if (tag == DW_TAG_formal_parameter)
+    scope = eValueTypeVariableArgument;
+  else {
+    // DWARF doesn't specify if a DW_TAG_variable is a local, global
+    // or static variable, so we have to do a little digging:
+    // 1) DW_AT_linkage_name implies static lifetime (but may be missing)
+    // 2) An empty DW_AT_location is an (optimized-out) static lifetime var.
+    // 3) DW_AT_location containing a DW_OP_addr implies static lifetime.
+    // Clang likes to combine small global variables into the same symbol
+    // with locations like: DW_OP_addr(0x1000), DW_OP_constu(2), DW_OP_plus
+    // so we need to look through the whole expression.
+    bool has_explicit_location = location_form.IsValid();
+    bool is_static_lifetime =
+        has_explicit_mangled ||
+        (has_explicit_location && !location_list.IsValid());
+    // Check if the location has a DW_OP_addr with any address value...
+    lldb::addr_t location_DW_OP_addr = LLDB_INVALID_ADDRESS;
+    if (!location_is_const_value_data) {
+      if (const DWARFExpression *location =
+              location_list.GetAlwaysValidExpr()) {
+        if (auto maybe_location_DW_OP_addr =
+                location->GetLocation_DW_OP_addr(location_form.GetUnit())) {
+          location_DW_OP_addr = *maybe_location_DW_OP_addr;
+        } else {
+          StreamString strm;
+          location->DumpLocation(&strm, eDescriptionLevelFull, nullptr);
+          dwarf->GetObjectFile()->GetModule()->ReportError(
+              "{0:x16}: {1} ({2}) has an invalid location: {3}: {4}",
+              die.GetOffset(), DW_TAG_value_to_name(die.Tag()), die.Tag(),
+              llvm::fmt_consume(maybe_location_DW_OP_addr.takeError()),
+              strm.GetData());
+        }
+      }
+      if (location_DW_OP_addr != LLDB_INVALID_ADDRESS)
+        is_static_lifetime = true;
+    }
+    SymbolFileDWARFDebugMap *debug_map_symfile = dwarf->GetDebugMapSymfile();
+    if (debug_map_symfile)
+      // Set the module of the expression to the linked module
+      // instead of the object file so the relocated address can be
+      // found there.
+      location_list.SetModule(debug_map_symfile->GetObjectFile()->GetModule());
+
+    if (is_static_lifetime) {
+      if (is_external)
+        scope = eValueTypeVariableGlobal;
+      else
+        scope = eValueTypeVariableStatic;
+
+      if (debug_map_symfile) {
+        bool linked_oso_file_addr = false;
+
+        if (is_external && location_DW_OP_addr == 0) {
+          if (Symbol *exe_symbol = fixupExternalAddrZeroVariable(
+                  *debug_map_symfile, mangled ? mangled : name, location_list,
+                  die)) {
+            linked_oso_file_addr = true;
+            symbol_context_scope = exe_symbol;
+          }
+        }
+
+        if (!linked_oso_file_addr) {
+          // The DW_OP_addr is not zero, but it contains a .o file address
+          // which needs to be linked up correctly.
+          const lldb::addr_t exe_file_addr =
+              debug_map_symfile->LinkOSOFileAddress(dwarf, location_DW_OP_addr);
+          if (exe_file_addr != LLDB_INVALID_ADDRESS) {
+            // Update the file address for this variable
+            DWARFExpression *location =
+                location_list.GetMutableExpressionAtAddress();
+            location->Update_DW_OP_addr(die.GetCU(), exe_file_addr);
+          } else {
+            // Variable didn't make it into the final executable
+            return nullptr;
+          }
+        }
+      }
+    } else {
+      if (location_is_const_value_data && die.IsGlobalOrStaticScopeVariable())
+        scope = eValueTypeVariableStatic;
+      else {
+        scope = eValueTypeVariableLocal;
+        if (debug_map_symfile) {
+          // We need to check for TLS addresses that we need to fixup
+          if (location_list.ContainsThreadLocalStorage()) {
+            location_list.LinkThreadLocalStorage(
+                debug_map_symfile->GetObjectFile()->GetModule(),
+                [dwarf, debug_map_symfile](
+                    lldb::addr_t unlinked_file_addr) -> lldb::addr_t {
+                  return debug_map_symfile->LinkOSOFileAddress(
+                      dwarf, unlinked_file_addr);
+                });
+            scope = eValueTypeVariableThreadLocal;
+          }
+        }
+      }
+    }
+  }
+
+  if (symbol_context_scope == nullptr) {
+    switch (parent_tag) {
+    case DW_TAG_subprogram:
+    case DW_TAG_inlined_subroutine:
+    case DW_TAG_lexical_block:
+      if (sc.function) {
+        symbol_context_scope =
+            sc.function->GetBlock(true).FindBlockByID(sc_parent_die.GetID());
+        if (symbol_context_scope == nullptr)
+          symbol_context_scope = sc.function;
+      }
+      break;
+
+    default:
+      symbol_context_scope = sc.comp_unit;
+      break;
+    }
+  }
+
+  if (!symbol_context_scope) {
+    // Not ready to parse this variable yet. It might be a global or static
+    // variable that is in a function scope and the function in the symbol
+    // context wasn't filled in yet
+    return nullptr;
+  }
+
+  auto type_sp = std::make_shared<SymbolFileType>(
+      *dwarf, type_die_form.Reference().GetID());
+
+  bool use_type_size_for_value =
+      location_is_const_value_data &&
+      DWARFFormValue::IsDataForm(const_value_form.Form());
+  if (use_type_size_for_value) {
+    std::optional<uint64_t> byte_size;
+    if (Type *t = type_sp->GetType())
+      byte_size = llvm::expectedToOptional(t->GetByteSize(nullptr));
+
+    // Some TypeSystems (such as Swift) cannot determine a type's byte
+    // size without an execution context (e.g. types whose layout
+    // depends on runtime metadata). In those cases the debug info
+    // might still carry the static size of the value's box, which is
+    // enough if the value is a constant.
+    if (!byte_size)
+      byte_size = GetByteSizeFromTypeDIE(type_die_form.Reference());
+
+    if (byte_size) {
+      DWARFExpression *location = location_list.GetMutableExpressionAtAddress();
+      location->UpdateValue(const_value_form.Unsigned(), *byte_size,
+                            die.GetCU()->GetAddressByteSize());
+    }
+  }
+
+  return std::make_shared<Variable>(
+      die.GetID(), name, mangled, type_sp, scope, symbol_context_scope,
+      scope_ranges, &decl, location_list, is_external, is_artificial,
+      location_is_const_value_data, is_static_member, tag_offset);
+}
+
 Function *DWARFASTParserClang::ParseFunctionFromDWARF(
     CompileUnit &comp_unit, const DWARFDIE &die, AddressRanges func_ranges) {
   llvm::DWARFAddressRangesVector unused_func_ranges;
   const char *name = nullptr;
   const char *mangled = nullptr;
-  std::optional<int> decl_file;
+  std::optional<std::pair<DWARFUnit *, size_t>> decl_file;
   std::optional<int> decl_line;
   std::optional<int> decl_column;
-  std::optional<int> call_file;
+  std::optional<std::pair<DWARFUnit *, size_t>> call_file;
   std::optional<int> call_line;
   std::optional<int> call_column;
   DWARFExpressionList frame_base;

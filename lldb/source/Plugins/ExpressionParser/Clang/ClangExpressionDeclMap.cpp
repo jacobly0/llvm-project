@@ -1117,7 +1117,7 @@ bool ClangExpressionDeclMap::LookupLocalVariable(
 
     if (var && !variable_found) {
       variable_found = true;
-      ValueObjectSP valobj = ValueObjectVariable::Create(frame, var);
+      ValueObjectSP valobj = var->CreateValueObject(frame);
       AddOneVariable(context, var, valobj);
       context.m_found_variable = true;
     }
@@ -1456,7 +1456,7 @@ void ClangExpressionDeclMap::FindExternalVisibleDecls(
     var = FindGlobalVariable(*target, module_sp, name, namespace_decl);
 
     if (var) {
-      valobj = ValueObjectVariable::Create(target, var);
+      valobj = var->CreateValueObject(target);
       AddOneVariable(context, var, valobj);
       context.m_found_variable = true;
       return;

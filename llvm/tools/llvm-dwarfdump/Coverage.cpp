@@ -244,7 +244,7 @@ static std::optional<const VarKey> getVarKey(DWARFDie VariableDIE,
   if (!VariableName || !SubroutineName)
     return std::nullopt;
   return VarKey{SubroutineName, VariableName, DeclFile,
-                VariableDIE.getDeclLine()};
+                VariableDIE.getDeclLine().value_or(0)};
 }
 
 static void displayParents(SmallVector<DWARFDie> Parents, raw_ostream &OS) {

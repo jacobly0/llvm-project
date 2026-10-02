@@ -808,7 +808,7 @@ public:
 
   lldb::ValueObjectSP SetupValueObject(ExecutionContextScope *scope) override {
     assert(m_variable_sp != nullptr);
-    return ValueObjectVariable::Create(scope, m_variable_sp);
+    return m_variable_sp->CreateValueObject(scope);
   }
 
   llvm::Expected<uint64_t>

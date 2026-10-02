@@ -76,6 +76,13 @@ bool CompilerType::IsVectorType(CompilerType *element_type,
   return false;
 }
 
+bool CompilerType::IsIndexableType(bool *is_incomplete) const {
+  if (IsValid())
+    if (auto type_system_sp = GetTypeSystem())
+      return type_system_sp->IsIndexableType(m_type, is_incomplete);
+  return false;
+}
+
 bool CompilerType::IsRuntimeGeneratedType() const {
   if (IsValid())
     if (auto type_system_sp = GetTypeSystem())
@@ -765,19 +772,19 @@ CompilerType::GetBasicTypeFromAST(lldb::BasicType basic_type) const {
 // Exploring the type
 
 llvm::Expected<uint64_t>
+CompilerType::GetByteSize(ExecutionContextScope *exe_scope) const {
+  if (IsValid())
+    if (auto type_system_sp = GetTypeSystem())
+      return type_system_sp->GetByteSize(m_type, exe_scope);
+  return llvm::createStringError("invalid type: cannot determine size");
+}
+
+llvm::Expected<uint64_t>
 CompilerType::GetBitSize(ExecutionContextScope *exe_scope) const {
   if (IsValid())
     if (auto type_system_sp = GetTypeSystem())
       return type_system_sp->GetBitSize(m_type, exe_scope);
   return llvm::createStringError("invalid type: cannot determine size");
-}
-
-llvm::Expected<uint64_t>
-CompilerType::GetByteSize(ExecutionContextScope *exe_scope) const {
-  auto bit_size_or_err = GetBitSize(exe_scope);
-  if (!bit_size_or_err)
-    return bit_size_or_err.takeError();
-  return (*bit_size_or_err + 7) / 8;
 }
 
 std::optional<size_t>
@@ -888,21 +895,21 @@ CompilerDecl CompilerType::GetStaticFieldWithName(llvm::StringRef name) const {
 
 llvm::Expected<CompilerType> CompilerType::GetDereferencedType(
     ExecutionContext *exe_ctx, std::string &deref_name,
-    uint32_t &deref_byte_size, int32_t &deref_byte_offset, ValueObject *valobj,
+    uint64_t &deref_bit_size, int64_t &deref_bit_offset, ValueObject *valobj,
     uint64_t &language_flags) const {
   if (IsValid())
     if (auto type_system_sp = GetTypeSystem())
       return type_system_sp->GetDereferencedType(
-          m_type, exe_ctx, deref_name, deref_byte_size, deref_byte_offset,
-          valobj, language_flags);
+          m_type, exe_ctx, deref_name, deref_bit_size, deref_bit_offset, valobj,
+          language_flags);
   return CompilerType();
 }
 
 llvm::Expected<CompilerType> CompilerType::GetChildCompilerTypeAtIndex(
     ExecutionContext *exe_ctx, size_t idx, bool transparent_pointers,
     bool omit_empty_base_classes, bool ignore_array_bounds,
-    std::string &child_name, uint32_t &child_byte_size,
-    int32_t &child_byte_offset, uint32_t &child_bitfield_bit_size,
+    std::string &child_name, uint64_t &child_bit_size,
+    int64_t &child_bit_offset, uint32_t &child_bitfield_bit_size,
     uint32_t &child_bitfield_bit_offset, bool &child_is_base_class,
     bool &child_is_deref_of_parent, ValueObject *valobj,
     uint64_t &language_flags) const {
@@ -910,7 +917,7 @@ llvm::Expected<CompilerType> CompilerType::GetChildCompilerTypeAtIndex(
     if (auto type_system_sp = GetTypeSystem())
       return type_system_sp->GetChildCompilerTypeAtIndex(
           m_type, exe_ctx, idx, transparent_pointers, omit_empty_base_classes,
-          ignore_array_bounds, child_name, child_byte_size, child_byte_offset,
+          ignore_array_bounds, child_name, child_bit_size, child_bit_offset,
           child_bitfield_bit_size, child_bitfield_bit_offset,
           child_is_base_class, child_is_deref_of_parent, valobj,
           language_flags);
@@ -961,6 +968,16 @@ size_t CompilerType::GetIndexOfChildMemberWithName(
   return 0;
 }
 
+ValueObject *CompilerType::GetStringPointer(ValueObject *valobj,
+                                            uint64_t *length,
+                                            char *terminator) const {
+  if (IsValid())
+    if (auto type_system_sp = GetTypeSystem())
+      return type_system_sp->GetStringPointer(m_type, valobj, length,
+                                              terminator);
+  return nullptr;
+}
+
 CompilerType
 CompilerType::GetDirectNestedTypeWithName(llvm::StringRef name) const {
   if (IsValid() && !name.empty()) {
@@ -968,6 +985,15 @@ CompilerType::GetDirectNestedTypeWithName(llvm::StringRef name) const {
       return type_system_sp->GetDirectNestedTypeWithName(m_type, name);
   }
   return CompilerType();
+}
+
+ValueObjectSP
+CompilerType::CreateValueFromType(ExecutionContextScope *exe_scope) const {
+  if (IsValid()) {
+    if (auto type_system_sp = GetTypeSystem())
+      return type_system_sp->CreateValueFromType(m_type, exe_scope);
+  }
+  return ValueObjectSP();
 }
 
 size_t CompilerType::GetNumTemplateArguments(bool expand_pack) const {

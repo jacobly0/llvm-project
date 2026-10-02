@@ -113,6 +113,10 @@ DWARFAttributes DWARFBaseDIE::GetAttributes(Recurse recurse) const {
   return DWARFAttributes();
 }
 
+bool DWARFBaseDIE::IsGlobalOrStaticScopeVariable() const {
+  return IsValid() ? m_die->IsGlobalOrStaticScopeVariable(m_cu) : false;
+}
+
 namespace lldb_private::plugin {
 namespace dwarf {
 bool operator==(const DWARFBaseDIE &lhs, const DWARFBaseDIE &rhs) {

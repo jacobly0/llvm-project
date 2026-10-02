@@ -244,14 +244,22 @@ llvm::Expected<uint64_t> ValueObjectConstResult::GetByteSize() {
         GetCompilerType().GetByteSize(exe_ctx.GetBestExecutionContextScope());
     if (!size_or_err)
       return size_or_err;
-    SetByteSize(*size_or_err);
+    m_byte_size = *size_or_err;
   }
-  if (m_byte_size)
-    return *m_byte_size;
-  return llvm::createStringError("unknown size of const result");
+  return *m_byte_size;
 }
 
-void ValueObjectConstResult::SetByteSize(size_t size) { m_byte_size = size; }
+llvm::Expected<uint64_t> ValueObjectConstResult::GetBitSize() {
+  ExecutionContext exe_ctx(GetExecutionContextRef());
+  if (!m_bit_size) {
+    auto size_or_err =
+        GetCompilerType().GetBitSize(exe_ctx.GetBestExecutionContextScope());
+    if (!size_or_err)
+      return size_or_err;
+    m_byte_size = *size_or_err;
+  }
+  return *m_bit_size;
+}
 
 llvm::Expected<uint32_t>
 ValueObjectConstResult::CalculateNumChildren(uint32_t max) {

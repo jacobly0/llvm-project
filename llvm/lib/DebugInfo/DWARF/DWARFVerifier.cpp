@@ -153,21 +153,24 @@ bool DWARFVerifier::verifyUnitHeader(const DWARFDataExtractor DebugInfoData,
                                      uint64_t *Offset, unsigned UnitIndex,
                                      uint8_t &UnitType, bool &isUnitDWARF64) {
   uint64_t AbbrOffset, Length;
-  uint8_t AddrSize = 0;
+  uint8_t AddrSize;
   uint16_t Version;
   bool Success = true;
 
-  bool ValidLength = false;
-  bool ValidVersion = false;
-  bool ValidAddrSize = false;
+  bool ValidLength;
+  bool ValidVersion;
+  bool ValidAddrSize = true;
   bool ValidType = true;
   bool ValidAbbrevOffset = true;
 
   uint64_t OffsetStart = *Offset;
   DwarfFormat Format;
   std::tie(Length, Format) = DebugInfoData.getInitialLength(Offset);
+  ValidLength = DebugInfoData.isValidOffset(OffsetStart + Length + 3);
+
   isUnitDWARF64 = Format == DWARF64;
   Version = DebugInfoData.getU16(Offset);
+  ValidVersion = Version == 0 || DWARFContext::isSupportedVersion(Version);
 
   if (Version >= 5) {
     UnitType = DebugInfoData.getU8(Offset);
@@ -175,26 +178,25 @@ bool DWARFVerifier::verifyUnitHeader(const DWARFDataExtractor DebugInfoData,
     AbbrOffset = isUnitDWARF64 ? DebugInfoData.getU64(Offset)
                                : DebugInfoData.getU32(Offset);
     ValidType = dwarf::isUnitType(UnitType);
-  } else {
-    UnitType = 0;
+  } else if (Version >= 2) {
     AbbrOffset = isUnitDWARF64 ? DebugInfoData.getU64(Offset)
                                : DebugInfoData.getU32(Offset);
     AddrSize = DebugInfoData.getU8(Offset);
   }
 
-  Expected<const DWARFAbbreviationDeclarationSet *> AbbrevSetOrErr =
-      DCtx.getDebugAbbrev()->getAbbreviationDeclarationSet(AbbrOffset);
-  if (!AbbrevSetOrErr) {
-    ValidAbbrevOffset = false;
-    // FIXME: A problematic debug_abbrev section is reported below in the form
-    // of a `note:`. We should propagate this error there (or elsewhere) to
-    // avoid losing the specific problem with the debug_abbrev section.
-    consumeError(AbbrevSetOrErr.takeError());
+  if (Version >= 2) {
+    ValidAddrSize = DWARFContext::isAddressSizeSupported(AddrSize);
+    Expected<const DWARFAbbreviationDeclarationSet *> AbbrevSetOrErr =
+        DCtx.getDebugAbbrev()->getAbbreviationDeclarationSet(AbbrOffset);
+    if (!AbbrevSetOrErr) {
+      ValidAbbrevOffset = false;
+      // FIXME: A problematic debug_abbrev section is reported below in the form
+      // of a `note:`. We should propagate this error there (or elsewhere) to
+      // avoid losing the specific problem with the debug_abbrev section.
+      consumeError(AbbrevSetOrErr.takeError());
+    }
   }
 
-  ValidLength = DebugInfoData.isValidOffset(OffsetStart + Length + 3);
-  ValidVersion = DWARFContext::isSupportedVersion(Version);
-  ValidAddrSize = DWARFContext::isAddressSizeSupported(AddrSize);
   if (!ValidLength || !ValidVersion || !ValidAddrSize || !ValidAbbrevOffset ||
       !ValidType) {
     Success = false;
@@ -794,6 +796,12 @@ unsigned DWARFVerifier::verifyDebugInfoAttribute(const DWARFDie &Die,
   case DW_AT_abstract_origin: {
     if (auto ReferencedDie = Die.getAttributeValueAsReferencedDie(Attr)) {
       auto DieTag = Die.getTag();
+      if (ReferencedDie == Die) {
+        ReportError("Recursive DW_AT_abstract_origin tag reference",
+                    formatv("DIE with tag {0} has {1} that points to itself",
+                            TagString(DieTag), AttributeString(Attr)));
+        break;
+      }
       auto RefTag = ReferencedDie.getTag();
       if (DieTag == RefTag)
         break;
@@ -804,6 +812,29 @@ unsigned DWARFVerifier::verifyDebugInfoAttribute(const DWARFDie &Die,
       // This might be reference to a function declaration.
       if (DieTag == DW_TAG_GNU_call_site && RefTag == DW_TAG_subprogram)
         break;
+      if (Die.getLanguage() == DW_LANG_Zig) {
+        // Zig generic constant declarations can be variables.
+        // For example, the type can vary between comptime-only and
+        // runtime based on generic parameters.
+        if (DieTag == DW_TAG_variable && RefTag == DW_TAG_constant)
+          break;
+        auto ImpTag = DieTag;
+        if (DieTag == DW_TAG_imported_declaration)
+          if (auto ImportedDie =
+                  Die.getAttributeValueAsReferencedDie(DW_AT_import)) {
+            ImpTag = ImportedDie.getTag();
+            // Zig generic constant declarations can be the same type if the
+            // type declaration has fewer captures than the parent nampsace.
+            if (ImpTag == RefTag)
+              break;
+            // Zig generic constant declarations can be functions.
+            if (ImpTag == DW_TAG_subprogram && RefTag == DW_TAG_constant)
+              break;
+          }
+        // Zig generic constant declarations can be types.
+        if (isType(ImpTag) && RefTag == DW_TAG_constant)
+          break;
+      }
       ReportError("Incompatible DW_AT_abstract_origin tag reference",
                   formatv("DIE with tag {0} has {1} that points to DIE with "
                           "incompatible tag {2}",
@@ -2283,11 +2314,13 @@ bool DWARFVerifier::verifyDebugStrOffsets(
       NextUnit = C.tell() + Length;
       uint8_t Version = DA.getU16(C);
       if (C && Version != 5) {
-        ErrorCategory.Report("Invalid Section version", [&]() {
-          error() << formatv("{0}: contribution {1:X}: invalid version {2}\n",
-                             SectionName, StartOffset, Version);
-        });
-        Success = false;
+        if (Version != 0) {
+          ErrorCategory.Report("Invalid Section version", [&]() {
+            error() << formatv("{0}: contribution {1:X}: invalid version {2}\n",
+                               SectionName, StartOffset, Version);
+          });
+          Success = false;
+        }
         // Can't parse the rest of this contribution, since we don't know the
         // version, but we can pick up with the next contribution.
         continue;

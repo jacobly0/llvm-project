@@ -1494,6 +1494,18 @@ lldb::SBValue SBTarget::CreateValueFromExpression(const char *name,
   return sb_value;
 }
 
+lldb::SBValue SBTarget::CreateValueFromType(lldb::SBType type) {
+  LLDB_INSTRUMENT_VA(this, type);
+
+  SBValue sb_value;
+  if (IsValid() && type.IsValid()) {
+    ExecutionContext exe_ctx(m_opaque_sp.get(), false);
+    sb_value.SetSP(type.GetSP()->GetCompilerType(false).CreateValueFromType(
+        exe_ctx.GetBestExecutionContextScope()));
+  }
+  return sb_value;
+}
+
 bool SBTarget::DeleteAllWatchpoints() {
   LLDB_INSTRUMENT_VA(this);
 
@@ -1973,8 +1985,7 @@ SBValueList SBTarget::FindGlobalVariables(const char *name,
       if (exe_scope == nullptr)
         exe_scope = target_sp.get();
       for (const VariableSP &var_sp : variable_list) {
-        lldb::ValueObjectSP valobj_sp(
-            ValueObjectVariable::Create(exe_scope, var_sp));
+        lldb::ValueObjectSP valobj_sp(var_sp->CreateValueObject(exe_scope));
         if (valobj_sp)
           sb_value_list.Append(SBValue(valobj_sp));
       }
@@ -2021,8 +2032,7 @@ SBValueList SBTarget::FindGlobalVariables(const char *name,
       if (exe_scope == nullptr)
         exe_scope = target_sp.get();
       for (const VariableSP &var_sp : variable_list) {
-        lldb::ValueObjectSP valobj_sp(
-            ValueObjectVariable::Create(exe_scope, var_sp));
+        lldb::ValueObjectSP valobj_sp(var_sp->CreateValueObject(exe_scope));
         if (valobj_sp)
           sb_value_list.Append(SBValue(valobj_sp));
       }

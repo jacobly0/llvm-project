@@ -62,6 +62,10 @@ Variable::Variable(lldb::user_id_t uid, const char *name, const char *mangled,
 
 Variable::~Variable() = default;
 
+ValueObjectSP Variable::CreateValueObject(ExecutionContextScope *exe_scope) {
+  return ValueObjectVariable::Create(exe_scope, shared_from_this());
+}
+
 lldb::LanguageType Variable::GetLanguage() const {
   lldb::LanguageType lang = m_mangled.GuessLanguage();
   if (lang != lldb::eLanguageTypeUnknown)

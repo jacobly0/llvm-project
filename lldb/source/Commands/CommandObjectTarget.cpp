@@ -832,8 +832,8 @@ protected:
     for (VariableSP var_sp : variable_list) {
       if (!var_sp)
         continue;
-      ValueObjectSP valobj_sp(ValueObjectVariable::Create(
-          exe_ctx.GetBestExecutionContextScope(), var_sp));
+      ValueObjectSP valobj_sp(
+          var_sp->CreateValueObject(exe_ctx.GetBestExecutionContextScope()));
 
       if (valobj_sp) {
         result.GetValueObjectList().Append(valobj_sp);
@@ -882,8 +882,8 @@ protected:
               ValueObjectSP valobj_sp(
                   valobj_list.GetValueObjectAtIndex(global_idx));
               if (!valobj_sp)
-                valobj_sp = ValueObjectVariable::Create(
-                    m_exe_ctx.GetBestExecutionContextScope(), var_sp);
+                valobj_sp = var_sp->CreateValueObject(
+                    m_exe_ctx.GetBestExecutionContextScope());
 
               if (valobj_sp)
                 DumpValueObject(result.GetOutputStream(), var_sp, valobj_sp,

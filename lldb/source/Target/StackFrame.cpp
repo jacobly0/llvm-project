@@ -944,8 +944,8 @@ ValueObjectSP StackFrame::LegacyGetValueForVariableExpressionPath(
                   var_expr_path_strm.GetData());
             }
           }
-        } else if (valobj_sp->GetCompilerType().IsArrayType(
-                       nullptr, nullptr, &is_incomplete_array)) {
+        } else if (valobj_sp->GetCompilerType().IsIndexableType(
+                       &is_incomplete_array)) {
           // Pass false to dynamic_value here so we can tell the difference
           // between no dynamic value and no member of this type...
           child_valobj_sp = valobj_sp->GetChildAtIndex(child_index);
@@ -1231,7 +1231,7 @@ StackFrame::GetValueObjectForFrameVariable(const VariableSP &variable_sp,
         if (!valobj_sp) {
           if (m_variable_list_value_objects.GetSize() < num_variables)
             m_variable_list_value_objects.Resize(num_variables);
-          valobj_sp = ValueObjectVariable::Create(this, variable_sp);
+          valobj_sp = variable_sp->CreateValueObject(this);
           m_variable_list_value_objects.SetValueObjectAtIndex(var_idx,
                                                               valobj_sp);
         }

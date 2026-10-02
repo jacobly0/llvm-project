@@ -2663,7 +2663,7 @@ void FormatEntity::PrettyPrintFunctionArguments(
     std::string buffer;
 
     VariableSP var_sp(args.GetVariableAtIndex(arg_idx));
-    ValueObjectSP var_value_sp(ValueObjectVariable::Create(exe_scope, var_sp));
+    ValueObjectSP var_value_sp(var_sp->CreateValueObject(exe_scope));
     StreamString ss;
     llvm::StringRef var_representation;
     const char *var_name = var_value_sp->GetName().GetCString();

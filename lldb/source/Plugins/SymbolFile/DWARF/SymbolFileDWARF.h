@@ -316,6 +316,14 @@ public:
   /// Same as GetLanguage() but reports all C++ versions as C++ (no version).
   static lldb::LanguageType GetLanguageFamily(DWARFUnit &unit);
 
+  static DWARFExpressionList
+  GetExprListFromAtLocation(DWARFFormValue form_value, lldb::ModuleSP module,
+                            const DWARFDIE &die,
+                            const lldb::addr_t func_low_pc);
+  static DWARFExpressionList
+  GetExprListFromAtConstValue(DWARFFormValue form_value, lldb::ModuleSP module,
+                              const DWARFDIE &die);
+
   StatsDuration::Duration GetDebugInfoParseTime() override {
     return m_parse_time;
   }
@@ -412,8 +420,9 @@ protected:
 
   Function *ParseFunction(CompileUnit &comp_unit, const DWARFDIE &die);
 
-  size_t ParseBlocksRecursive(CompileUnit &comp_unit, Block *parent_block,
-                              DWARFDIE die, lldb::addr_t function_file_addr);
+  size_t ParseBlocksRecursive(
+      Block *parent_block, DWARFDIE die, lldb::addr_t function_file_addr,
+      std::optional<std::pair<DWARFUnit *, size_t>> parent_decl_file);
 
   size_t ParseTypes(const SymbolContext &sc, const DWARFDIE &die,
                     bool parse_siblings, bool parse_children);

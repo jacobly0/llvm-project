@@ -72,7 +72,7 @@ void DWARFUnitVector::addUnitsImpl(
   // Lazy initialization of Parser, now that we have all section info.
   if (!Parser) {
     Parser = [=, &Context, &Obj, &Section, &SOS,
-              &LS](uint64_t Offset, DWARFSectionKind SectionKind,
+              &LS](uint64_t &Offset, DWARFSectionKind SectionKind,
                    const DWARFSection *CurSection,
                    const DWARFUnitIndex::Entry *IndexEntry)
         -> std::unique_ptr<DWARFUnit> {
@@ -84,6 +84,16 @@ void DWARFUnitVector::addUnitsImpl(
       if (Error ExtractErr =
               Header.extract(Context, Data, &Offset, SectionKind)) {
         Context.getWarningHandler()(std::move(ExtractErr));
+        // Ensure forward progress.
+        if (Offset <= Header.getNextUnitOffset())
+          Offset = Header.getNextUnitOffset();
+        else
+          Offset = UINT64_MAX;
+        return nullptr;
+      }
+      // Skip padding units.
+      if (Header.getVersion() == 0) {
+        Offset = Header.getNextUnitOffset();
         return nullptr;
       }
       if (!IndexEntry && IsDWO) {
@@ -101,6 +111,7 @@ void DWARFUnitVector::addUnitsImpl(
       if (IndexEntry) {
         if (Error ApplicationErr = Header.applyIndexEntry(IndexEntry)) {
           Context.getWarningHandler()(std::move(ApplicationErr));
+          Offset = Header.getNextUnitOffset();
           return nullptr;
         }
       }
@@ -113,6 +124,7 @@ void DWARFUnitVector::addUnitsImpl(
         U = std::make_unique<DWARFCompileUnit>(Context, InfoSection, Header,
                                                 DA, RS, LocSection, SS, SOS,
                                                 AOS, LS, LE, IsDWO, *this);
+      Offset = U->getNextUnitOffset();
       return U;
     };
   }
@@ -131,12 +143,8 @@ void DWARFUnitVector::addUnitsImpl(
       ++I;
       continue;
     }
-    auto U = Parser(Offset, SectionKind, &Section, nullptr);
-    // If parsing failed, we're done with this section.
-    if (!U)
-      break;
-    Offset = U->getNextUnitOffset();
-    I = std::next(this->insert(I, std::move(U)));
+    if (auto U = Parser(Offset, SectionKind, &Section, nullptr))
+      I = std::next(this->insert(I, std::move(U)));
   }
 }
 
@@ -274,7 +282,7 @@ Error DWARFUnitHeader::extract(DWARFContext &Context,
     FormParams.AddrSize = debug_info.getU8(offset_ptr, &Err);
     AbbrOffset = debug_info.getRelocatedValue(
         FormParams.getDwarfOffsetByteSize(), offset_ptr, nullptr, &Err);
-  } else {
+  } else if (FormParams.Version >= 2) {
     AbbrOffset = debug_info.getRelocatedValue(
         FormParams.getDwarfOffsetByteSize(), offset_ptr, nullptr, &Err);
     FormParams.AddrSize = debug_info.getU8(offset_ptr, &Err);
@@ -311,12 +319,16 @@ Error DWARFUnitHeader::extract(DWARFContext &Context,
                              "extends past section size 0x%8.8zx",
                              Offset, NextCUOffset, debug_info.size());
 
-  if (!DWARFContext::isSupportedVersion(getVersion()))
+  if (!DWARFContext::isSupportedVersion(getVersion())) {
+    // A version 0 unit has no defined contents and is used for padding.
+    if (getVersion() == 0)
+      return Error::success();
     return createStringError(
         errc::invalid_argument,
         "DWARF unit at offset 0x%8.8" PRIx64 " "
         "has unsupported version %" PRIu16 ", supported are 2-%u",
         Offset, getVersion(), DWARFContext::getMaxSupportedVersion());
+  }
 
   // Type offset is unit-relative; should be after the header and before
   // the end of the current unit.
@@ -918,6 +930,10 @@ DWARFUnit::getParentEntry(const DWARFDebugInfoEntry *Die) const {
     return nullptr;
   assert(Die >= DieArray.data() && Die < DieArray.data() + DieArray.size());
 
+  if (Die->hasParentAttr())
+    return DWARFDie(const_cast<DWARFUnit *>(this), Die)
+        .getAttributeValueAsReferencedDie(DW_AT_ZIG_parent)
+        .getDebugInfoEntry();
   if (std::optional<uint32_t> ParentIdx = Die->getParentIdx()) {
     assert(*ParentIdx < DieArray.size() &&
            "ParentIdx is out of DieArray boundaries");

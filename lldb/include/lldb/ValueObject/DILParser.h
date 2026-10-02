@@ -14,6 +14,7 @@
 #include "lldb/Utility/Status.h"
 #include "lldb/ValueObject/DILAST.h"
 #include "lldb/ValueObject/DILLexer.h"
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/Error.h"
 #include <memory>
 #include <optional>
@@ -95,8 +96,8 @@ private:
 
   std::string ParseNestedNameSpecifier();
 
-  std::string ParseIdExpression();
-  std::string ParseUnqualifiedId();
+  std::pair<std::string, bool> ParseIdExpression();
+  std::pair<std::string, bool> ParseUnqualifiedId();
   ASTNodeUP ParseNumericLiteral();
   ASTNodeUP ParseIntegerLiteral();
   ASTNodeUP ParseFloatingPointLiteral();
@@ -115,7 +116,7 @@ private:
 
   void Expect(Token::Kind kind);
 
-  void ExpectOneOf(std::vector<Token::Kind> kinds_vec);
+  void ExpectOneOf(llvm::ArrayRef<Token::Kind> kinds);
 
   void TentativeParsingRollback(uint32_t saved_idx) {
     if (m_error)

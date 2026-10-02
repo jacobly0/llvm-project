@@ -260,7 +260,8 @@ static void dumpAttribute(raw_ostream &OS, const DWARFDie &Die,
           errc::invalid_argument,
           llvm::formatv("decoding DW_AT_APPLE_property_name: {}",
                         toString(PropNameOrErr.takeError()))));
-  } else if (Attr == DW_AT_type || Attr == DW_AT_containing_type) {
+  } else if (Attr == DW_AT_type || Attr == DW_AT_containing_type ||
+             Attr == DW_AT_ZIG_parent) {
     DWARFDie D = resolveReferencedType(Die, FormValue);
     if (D && !D.isNULL()) {
       OS << Space << "\"";
@@ -419,6 +420,10 @@ std::optional<uint64_t> DWARFDie::getLocBaseAttribute() const {
   return toSectionOffset(find(DW_AT_loclists_base));
 }
 
+std::optional<object::SectionedAddress> DWARFDie::getLowPC() const {
+  return toSectionedAddress(find(DW_AT_low_pc));
+}
+
 std::optional<uint64_t> DWARFDie::getHighPC(uint64_t LowPC) const {
   uint64_t Tombstone = dwarf::computeTombstoneAddress(U->getAddressByteSize());
   if (LowPC == Tombstone)
@@ -438,15 +443,13 @@ std::optional<uint64_t> DWARFDie::getHighPC(uint64_t LowPC) const {
 
 bool DWARFDie::getLowAndHighPC(uint64_t &LowPC, uint64_t &HighPC,
                                uint64_t &SectionIndex) const {
-  auto F = find(DW_AT_low_pc);
-  auto LowPcAddr = toSectionedAddress(F);
-  if (!LowPcAddr)
-    return false;
-  if (auto HighPcAddr = getHighPC(LowPcAddr->Address)) {
-    LowPC = LowPcAddr->Address;
-    HighPC = *HighPcAddr;
-    SectionIndex = LowPcAddr->SectionIndex;
-    return true;
+  if (auto LowPcAddr = getLowPC()) {
+    if (auto HighPcAddr = getHighPC(LowPcAddr->Address)) {
+      LowPC = LowPcAddr->Address;
+      HighPC = *HighPcAddr;
+      SectionIndex = LowPcAddr->SectionIndex;
+      return true;
+    }
   }
   return false;
 }
@@ -554,16 +557,41 @@ const char *DWARFDie::getLinkageName() const {
                          nullptr);
 }
 
-uint64_t DWARFDie::getDeclLine() const {
-  return toUnsigned(findRecursively(DW_AT_decl_line), 0);
+std::optional<uint64_t> DWARFDie::getDeclLine() const {
+  return toUnsigned(findRecursively(DW_AT_decl_line));
+}
+
+std::optional<uint64_t> DWARFDie::getDeclColumn() const {
+  return toUnsigned(findRecursively(DW_AT_decl_column));
+}
+
+std::optional<uint64_t> DWARFDie::getDeclFileIndex() const {
+  if (auto FormValue = findRecursively(DW_AT_decl_file))
+    return toUnsigned(FormValue);
+  SmallSet<DWARFDie, 3> Seen;
+  Seen.insert(*this);
+  DWARFDie P = getParent();
+  while (P && Seen.insert(P).second) {
+    if (auto FormValue = P.find(DW_AT_decl_file))
+      return toUnsigned(FormValue);
+    P = P.getParent();
+  }
+  return std::nullopt;
 }
 
 std::string
 DWARFDie::getDeclFile(DILineInfoSpecifier::FileLineInfoKind Kind) const {
   if (auto FormValue = findRecursively(DW_AT_decl_file))
-    if (auto OptString = FormValue->getAsFile(Kind))
-      return *OptString;
-  return {};
+    return FormValue->getAsFile(Kind).value_or(std::string());
+  SmallSet<DWARFDie, 3> Seen;
+  Seen.insert(*this);
+  DWARFDie P = getParent();
+  while (P && Seen.insert(P).second) {
+    if (auto FormValue = P.find(DW_AT_decl_file))
+      return FormValue->getAsFile(Kind).value_or(std::string());
+    P = P.getParent();
+  }
+  return std::string();
 }
 
 void DWARFDie::getCallerFrame(uint32_t &CallFile, uint32_t &CallLine,

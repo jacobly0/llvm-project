@@ -35,10 +35,8 @@ class ValueObjectVariable : public ValueObject {
 public:
   ~ValueObjectVariable() override;
 
-  static lldb::ValueObjectSP Create(ExecutionContextScope *exe_scope,
-                                    const lldb::VariableSP &var_sp);
-
   llvm::Expected<uint64_t> GetByteSize() override;
+  llvm::Expected<uint64_t> GetBitSize() override;
 
   ConstString GetTypeName() override;
 
@@ -80,10 +78,16 @@ protected:
   /// it up.
   Value m_resolved_value;
 
-private:
+  friend class Variable; // For Create
+
+  static lldb::ValueObjectSP Create(ExecutionContextScope *exe_scope,
+                                    const lldb::VariableSP &var_sp);
+
   ValueObjectVariable(ExecutionContextScope *exe_scope,
                       ValueObjectManager &manager,
                       const lldb::VariableSP &var_sp);
+
+private:
   // For ValueObject only
   ValueObjectVariable(const ValueObjectVariable &) = delete;
   const ValueObjectVariable &operator=(const ValueObjectVariable &) = delete;

@@ -217,7 +217,8 @@ ASTNodeUP DILParser::ParseMultiplicativeExpression() {
 
   while (CurToken().IsOneOf({Token::star, Token::slash, Token::percent})) {
     Token token = CurToken();
-    if (token.Is(Token::star) && m_mode != lldb::eDILModeFull) {
+    if (token.Is(Token::star) && m_mode != lldb::eDILModeFull &&
+        m_mode != lldb::eDILModeZig) {
       BailOut("binary multiplication (*) is allowed only in DIL full mode",
               token.GetLocation(), token.GetSpelling().length());
       return std::make_unique<ErrorNode>();
@@ -336,9 +337,9 @@ ASTNodeUP DILParser::ParsePostfixExpression() {
   while (CurToken().IsOneOf({Token::l_square, Token::period, Token::arrow})) {
     uint32_t loc = CurToken().GetLocation();
     Token token = CurToken();
+    m_dil_lexer.Advance();
     switch (token.GetKind()) {
     case Token::l_square: {
-      m_dil_lexer.Advance();
       ASTNodeUP index = ParseExpression();
       assert(index && "ASTNodeUP must not contain a nullptr");
       if (CurToken().GetKind() == Token::colon) {
@@ -360,13 +361,23 @@ ASTNodeUP DILParser::ParsePostfixExpression() {
       break;
     }
     case Token::period:
+      if (m_mode == lldb::eDILModeZig) {
+        Token member_token = CurToken();
+        if (member_token.IsOneOf({Token::star, Token::question})) {
+          m_dil_lexer.Advance();
+          lhs = std::make_unique<MemberOfNode>(
+              member_token.GetLocation(), std::move(lhs), /*is_arrow=*/false,
+              member_token.GetSpelling(), /*quoted=*/false);
+          break;
+        }
+      }
+      [[fallthrough]];
     case Token::arrow: {
-      m_dil_lexer.Advance();
       Token member_token = CurToken();
-      std::string member_id = ParseIdExpression();
+      auto [member_id, member_quoted] = ParseIdExpression();
       lhs = std::make_unique<MemberOfNode>(
           member_token.GetLocation(), std::move(lhs),
-          token.GetKind() == Token::arrow, member_id);
+          token.GetKind() == Token::arrow, member_id, member_quoted);
       break;
     }
     default:
@@ -390,14 +401,14 @@ ASTNodeUP DILParser::ParsePrimaryExpression() {
     return ParseNumericLiteral();
   if (CurToken().IsOneOf({Token::kw_true, Token::kw_false}))
     return ParseBooleanLiteral();
-  if (CurToken().IsOneOf(
-          {Token::coloncolon, Token::identifier, Token::l_paren})) {
+  if (CurToken().IsOneOf({Token::coloncolon, Token::identifier,
+                          Token::zig_quoted_identifier, Token::l_paren})) {
     // Save the source location for the diagnostics message.
     uint32_t loc = CurToken().GetLocation();
-    std::string identifier = ParseIdExpression();
+    auto [id, quoted] = ParseIdExpression();
 
-    if (!identifier.empty())
-      return std::make_unique<IdentifierNode>(loc, identifier);
+    if (!id.empty())
+      return std::make_unique<IdentifierNode>(loc, id, quoted);
   }
 
   if (CurToken().Is(Token::l_paren)) {
@@ -505,12 +516,12 @@ std::optional<CompilerType> DILParser::ParseTypeId() {
       return {};
 
     // Same-name identifiers should be preferred over typenames.
-    if (LookupIdentifier(type_name, m_ctx_scope, m_use_dynamic))
+    if (LookupIdentifier(type_name, false, m_ctx_scope, m_use_dynamic))
       // TODO: Make type accessible with 'class', 'struct' and 'union' keywords.
       return {};
 
     // Same-name identifiers should be preferred over typenames.
-    if (LookupGlobalIdentifier(type_name, m_ctx_scope,
+    if (LookupGlobalIdentifier(type_name, false, m_ctx_scope,
                                m_ctx_scope->CalculateTarget(), m_use_dynamic))
       // TODO: Make type accessible with 'class', 'struct' and 'union' keywords
       return {};
@@ -665,7 +676,7 @@ std::optional<std::string> DILParser::ParseTypeName() {
 //  identifier:
 //    ? Token::identifier ?
 //
-std::string DILParser::ParseIdExpression() {
+std::pair<std::string, bool> DILParser::ParseIdExpression() {
   // Try parsing optional global scope operator.
   bool global_scope = false;
   if (CurToken().Is(Token::coloncolon)) {
@@ -680,22 +691,21 @@ std::string DILParser::ParseIdExpression() {
   // Follow the first production rule.
   if (!nested_name_specifier.empty()) {
     // Parse unqualified_id and construct a fully qualified id expression.
-    auto unqualified_id = ParseUnqualifiedId();
+    auto [id, quoted] = ParseUnqualifiedId();
 
-    return llvm::formatv("{0}{1}{2}", global_scope ? "::" : "",
-                         nested_name_specifier, unqualified_id);
+    return {llvm::formatv("{0}{1}{2}", global_scope ? "::" : "",
+                          nested_name_specifier, id),
+            quoted};
   }
 
-  if (!CurToken().Is(Token::identifier))
-    return "";
+  if (!CurToken().IsOneOf({Token::identifier, Token::zig_quoted_identifier}))
+    return {"", false};
 
   // No nested_name_specifier, but with global scope -- this is also a
   // qualified_id production. Follow the second production rule.
   if (global_scope) {
-    Expect(Token::identifier);
-    std::string identifier = CurToken().GetSpelling();
-    m_dil_lexer.Advance();
-    return llvm::formatv("{0}{1}", global_scope ? "::" : "", identifier);
+    auto [id, quoted] = ParseUnqualifiedId();
+    return {llvm::formatv("{0}{1}", global_scope ? "::" : "", id), quoted};
   }
 
   // This is unqualified_id production.
@@ -710,11 +720,12 @@ std::string DILParser::ParseIdExpression() {
 //  identifier:
 //    ? Token::identifier ?
 //
-std::string DILParser::ParseUnqualifiedId() {
-  Expect(Token::identifier);
+std::pair<std::string, bool> DILParser::ParseUnqualifiedId() {
+  ExpectOneOf({Token::identifier, Token::zig_quoted_identifier});
   std::string identifier = CurToken().GetSpelling();
+  bool quoted = CurToken().GetKind() == Token::zig_quoted_identifier;
   m_dil_lexer.Advance();
-  return identifier;
+  return {identifier, quoted};
 }
 
 CompilerType
@@ -758,7 +769,7 @@ DILParser::ResolveTypeDeclarators(CompilerType type,
 //    "false"
 //
 ASTNodeUP DILParser::ParseBooleanLiteral() {
-  ExpectOneOf(std::vector<Token::Kind>{Token::kw_true, Token::kw_false});
+  ExpectOneOf({Token::kw_true, Token::kw_false});
   uint32_t loc = CurToken().GetLocation();
   bool literal_value = CurToken().Is(Token::kw_true);
   m_dil_lexer.Advance();
@@ -848,10 +859,10 @@ void DILParser::Expect(Token::Kind kind) {
   }
 }
 
-void DILParser::ExpectOneOf(std::vector<Token::Kind> kinds_vec) {
-  if (!CurToken().IsOneOf(kinds_vec)) {
+void DILParser::ExpectOneOf(llvm::ArrayRef<Token::Kind> kinds) {
+  if (!CurToken().IsOneOf(kinds)) {
     BailOut(llvm::formatv("expected any of ({0}), got: {1}",
-                          llvm::iterator_range(kinds_vec), CurToken()),
+                          llvm::iterator_range(kinds), CurToken()),
             CurToken().GetLocation(), CurToken().GetSpelling().length());
   }
 }

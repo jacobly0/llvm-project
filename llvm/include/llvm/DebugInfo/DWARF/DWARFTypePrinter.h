@@ -84,8 +84,10 @@ private:
   /// If FormValue is a valid constant Form, print into \c OS the integral value
   /// casted to the type referred to by \c Cast.
   template <typename FormValueType>
-  void appendCastedValue(const FormValueType &FormValue, DieType Cast,
-                         bool IsUnsigned);
+  void appendCastedValue(const FormValueType &FormValue,
+                         std::optional<DieType> Cast, bool IsUnsigned);
+
+  DieType appendZigImport(DieType D);
 };
 
 template <typename DieType>
@@ -301,7 +303,8 @@ DieType DWARFTypePrinter<DieType>::appendUnqualifiedNameBefore(
   case DW_TAG_base_type:
   */
   default: {
-    const char *NamePtr = detail::toString(D.find(dwarf::DW_AT_name));
+    const char *NamePtr =
+        detail::toString(D.findRecursively(dwarf::DW_AT_name));
     if (!NamePtr) {
       appendTypeTagName(D.getTag());
       return DieType();
@@ -430,41 +433,67 @@ void DWARFTypePrinter<DieType>::appendUnqualifiedNameAfter(
 
 template <typename DieType>
 void DWARFTypePrinter<DieType>::appendQualifiedName(DieType D) {
-  if (D && scopedTAGs(D.getTag()))
-    appendScopes(D.getParent());
+  if (D && scopedTAGs(D.getTag())) {
+    if (DieType P = appendZigImport(D))
+      appendScopes(P);
+    else
+      return;
+  }
   appendUnqualifiedName(D);
 }
 
 template <typename DieType>
 DieType DWARFTypePrinter<DieType>::appendQualifiedNameBefore(DieType D) {
-  if (D && scopedTAGs(D.getTag()))
-    appendScopes(D.getParent());
+  if (D && scopedTAGs(D.getTag())) {
+    if (DieType P = appendZigImport(D))
+      appendScopes(P);
+    else
+      return detail::resolveReferencedType(D);
+  }
   return appendUnqualifiedNameBefore(D);
 }
 
 template <typename DieType>
 template <typename FormValueType>
 void DWARFTypePrinter<DieType>::appendCastedValue(
-    const FormValueType &FormValue, DieType Cast, bool IsUnsigned) {
+    const FormValueType &FormValue, std::optional<DieType> Cast,
+    bool IsUnsigned) {
   std::string ValStr;
-  if (IsUnsigned) {
-    std::optional<uint64_t> UVal = FormValue.getAsUnsignedConstant();
+  if (auto BVal = FormValue.getAsBlock()) {
+    APSInt Val(8 * BVal->size(), IsUnsigned);
+    LoadIntFromMemory(Val, BVal->data(), BVal->size());
+
+    SmallString<64> Str;
+    Val.toString(Str);
+    ValStr = Str.str();
+  } else if (IsUnsigned) {
+    auto UVal = FormValue.getAsUnsignedConstant();
     if (!UVal)
       return;
 
     ValStr = std::to_string(*UVal);
   } else {
-    std::optional<int64_t> SVal = FormValue.getAsSignedConstant();
+    auto SVal = FormValue.getAsSignedConstant();
     if (!SVal)
       return;
 
     ValStr = std::to_string(*SVal);
   }
 
-  OS << '(';
-  appendQualifiedName(Cast);
-  OS << ')';
+  if (Cast) {
+    if (Cast->getLanguage() == dwarf::DW_LANG_Zig)
+      OS << "@as(";
+    else
+      OS << '(';
+    appendQualifiedName(*Cast);
+    if (Cast->getLanguage() == dwarf::DW_LANG_Zig)
+      OS << ", ";
+    else
+      OS << ')';
+  }
   OS << std::move(ValStr);
+  if (Cast && Cast->getLanguage() == dwarf::DW_LANG_Zig)
+    OS << ')';
 }
 
 template <typename DieType>
@@ -489,14 +518,16 @@ bool DWARFTypePrinter<DieType>::appendTemplateParameters(DieType D,
       appendTemplateParameters(C, FirstParameter);
     }
     if (C.getTag() == dwarf::DW_TAG_template_value_parameter) {
-      DieType T = detail::resolveReferencedType(C);
       Sep();
-      if (T.getTag() == dwarf::DW_TAG_enumeration_type) {
-        auto V = C.find(dwarf::DW_AT_const_value);
-        appendCastedValue(*V, T, /*IsUnsigned=*/false);
+      DieType T = detail::unwrapReferencedTypedefType(C);
+      if (!T) {
+        const char *RawName = detail::toString(C.find(dwarf::DW_AT_name));
+        if (!RawName)
+          continue;
+        StringRef Name = RawName;
+        OS << Name;
         continue;
       }
-
       // /Maybe/ we could do pointer/reference type parameters, looking for the
       // symbol in the ELF symbol table to get back to the variable...
       // but probably not worth it.
@@ -504,117 +535,175 @@ bool DWARFTypePrinter<DieType>::appendTemplateParameters(DieType D,
           T.getTag() == dwarf::DW_TAG_reference_type ||
           T.getTag() == dwarf::DW_TAG_ptr_to_member_type)
         continue;
-      const char *RawName = detail::toString(T.find(dwarf::DW_AT_name));
-      assert(RawName);
-      StringRef Name = RawName;
+      if (T.getTag() == dwarf::DW_TAG_enumeration_type) {
+        T = detail::unwrapReferencedTypedefType(T);
+        if (!T)
+          continue;
+      }
       auto V = C.find(dwarf::DW_AT_const_value);
-      bool IsQualifiedChar = false;
-      if (Name == "bool") {
-        OS << (*V->getAsUnsignedConstant() ? "true" : "false");
-      } else if (Name == "short") {
-        OS << "(short)";
-        OS << std::to_string(*V->getAsSignedConstant());
-      } else if (Name == "unsigned short") {
-        OS << "(unsigned short)";
-        OS << std::to_string(*V->getAsSignedConstant());
-      } else if (Name == "int")
-        OS << std::to_string(*V->getAsSignedConstant());
-      else if (Name == "long") {
-        OS << std::to_string(*V->getAsSignedConstant());
-        OS << "L";
-      } else if (Name == "long long") {
-        OS << std::to_string(*V->getAsSignedConstant());
-        OS << "LL";
-      } else if (Name == "unsigned int") {
-        OS << std::to_string(*V->getAsUnsignedConstant());
-        OS << "U";
-      } else if (Name == "unsigned long") {
-        OS << std::to_string(*V->getAsUnsignedConstant());
-        OS << "UL";
-      } else if (Name == "unsigned long long") {
-        OS << std::to_string(*V->getAsUnsignedConstant());
-        OS << "ULL";
-      } else if (Name == "char" ||
-                 (IsQualifiedChar =
-                      (Name == "unsigned char" || Name == "signed char"))) {
-        // FIXME: check T's DW_AT_type to see if it's signed or not (since
-        // char signedness is implementation defined).
-        auto Val = *V->getAsSignedConstant();
-        // Copied/hacked up from Clang's CharacterLiteral::print - incomplete
-        // (doesn't actually support different character types/widths, sign
-        // handling's not done, and doesn't correctly test if a character is
-        // printable or needs to use a numeric escape sequence instead)
-        if (IsQualifiedChar) {
-          OS << '(';
-          OS << Name;
-          OS << ')';
+      if (D.getLanguage() != dwarf::DW_LANG_Zig) {
+        if (T.getTag() == dwarf::DW_TAG_enumeration_type) {
+          appendCastedValue(*V, T, /*IsUnsigned=*/false);
+          continue;
         }
-        switch (Val) {
-        case '\\':
-          OS << "'\\\\'";
-          break;
-        case '\'':
-          OS << "'\\''";
-          break;
-        case '\a':
-          // TODO: K&R: the meaning of '\\a' is different in traditional C
-          OS << "'\\a'";
-          break;
-        case '\b':
-          OS << "'\\b'";
-          break;
-        case '\f':
-          OS << "'\\f'";
-          break;
-        case '\n':
-          OS << "'\\n'";
-          break;
-        case '\r':
-          OS << "'\\r'";
-          break;
-        case '\t':
-          OS << "'\\t'";
-          break;
-        case '\v':
-          OS << "'\\v'";
-          break;
-        default:
-          if ((Val & ~0xFFu) == ~0xFFu)
-            Val &= 0xFFu;
-          if (Val < 127 && Val >= 32) {
-            OS << "'";
-            OS << (char)Val;
-            OS << "'";
-          } else if (Val < 256)
-            OS << llvm::format("'\\x%02" PRIx64 "'", Val);
-          else if (Val <= 0xFFFF)
-            OS << llvm::format("'\\u%04" PRIx64 "'", Val);
-          else
-            OS << llvm::format("'\\U%08" PRIx64 "'", Val);
+        const char *RawName = detail::toString(T.find(dwarf::DW_AT_name));
+        assert(RawName);
+        StringRef Name = RawName;
+        bool IsQualifiedChar = false;
+        if (Name == "short") {
+          appendCastedValue(*V, T, /*IsUnsigned*/ false);
+          continue;
+        } else if (Name == "unsigned short") {
+          appendCastedValue(*V, T, /*IsUnsigned*/ true);
+          continue;
+        } else if (Name == "int") {
+          appendCastedValue(*V, std::nullopt, /*IsUnsigned*/ false);
+          continue;
+        } else if (Name == "long") {
+          appendCastedValue(*V, std::nullopt, /*IsUnsigned*/ false);
+          OS << "L";
+          continue;
+        } else if (Name == "long long") {
+          appendCastedValue(*V, std::nullopt, /*IsUnsigned*/ false);
+          OS << "LL";
+          continue;
+        } else if (Name == "unsigned int") {
+          appendCastedValue(*V, std::nullopt, /*IsUnsigned*/ true);
+          OS << "U";
+          continue;
+        } else if (Name == "unsigned long") {
+          appendCastedValue(*V, std::nullopt, /*IsUnsigned*/ true);
+          OS << "UL";
+          continue;
+        } else if (Name == "unsigned long long") {
+          appendCastedValue(*V, std::nullopt, /*IsUnsigned*/ true);
+          OS << "ULL";
+          continue;
+        } else if (Name == "char" ||
+                   (IsQualifiedChar =
+                        (Name == "unsigned char" || Name == "signed char"))) {
+          int64_t Val;
+          if (auto BVal = V->getAsBlock())
+            Val = BVal->size() ? BVal->front() : 0;
+          else if (auto Enc = T.find(dwarf::DW_AT_encoding);
+                   Enc && Enc->getAsUnsignedConstant() ==
+                              dwarf::DW_ATE_unsigned_char) {
+            auto UVal = V->getAsUnsignedConstant();
+            if (!UVal)
+              continue;
+            Val = *UVal;
+          } else {
+            auto SVal = V->getAsSignedConstant();
+            if (!SVal)
+              continue;
+            Val = *SVal;
+          }
+          // Copied/hacked up from Clang's CharacterLiteral::print - incomplete
+          // (doesn't actually support different character types/widths, sign
+          // handling's not done, and doesn't correctly test if a character is
+          // printable or needs to use a numeric escape sequence instead)
+          if (IsQualifiedChar) {
+            OS << '(';
+            OS << Name;
+            OS << ')';
+          }
+          switch (Val) {
+          case '\\':
+            OS << "'\\\\'";
+            break;
+          case '\'':
+            OS << "'\\''";
+            break;
+          case '\a':
+            // TODO: K&R: the meaning of '\\a' is different in traditional C
+            OS << "'\\a'";
+            break;
+          case '\b':
+            OS << "'\\b'";
+            break;
+          case '\f':
+            OS << "'\\f'";
+            break;
+          case '\n':
+            OS << "'\\n'";
+            break;
+          case '\r':
+            OS << "'\\r'";
+            break;
+          case '\t':
+            OS << "'\\t'";
+            break;
+          case '\v':
+            OS << "'\\v'";
+            break;
+          default:
+            if ((Val & ~0xFFu) == ~0xFFu)
+              Val &= 0xFFu;
+            if (Val < 127 && Val >= 32) {
+              OS << "'";
+              OS << (char)Val;
+              OS << "'";
+            } else if (Val < 256)
+              OS << llvm::format("'\\x%02" PRIx64 "'", Val);
+            else if (Val <= 0xFFFF)
+              OS << llvm::format("'\\u%04" PRIx64 "'", Val);
+            else
+              OS << llvm::format("'\\U%08" PRIx64 "'", Val);
+          }
+          continue;
+        } else if (Name.starts_with("_BitInt")) {
+          appendCastedValue(*V, T, /*IsUnsigned=*/false);
+          continue;
+        } else if (Name.starts_with("unsigned _BitInt")) {
+          appendCastedValue(*V, T, /*IsUnsigned=*/true);
+          continue;
         }
-        // FIXME: Handle _BitInt's larger than 64-bits which are emitted as
-        // block data.
-      } else if (Name.starts_with("_BitInt")) {
+      }
+      auto Enc = T.find(dwarf::DW_AT_encoding);
+      if (!Enc)
+        continue;
+      auto EncVal = Enc->getAsUnsignedConstant();
+      if (!EncVal)
+        continue;
+      switch (*EncVal) {
+      default:
+        break;
+      case dwarf::DW_ATE_boolean:
+        if (auto UVal = V->getAsUnsignedConstant())
+          OS << (*UVal ? "true" : "false");
+        else if (auto BVal = V->getAsBlock())
+          OS << (llvm::any_of(*BVal, [](uint8_t byte) -> bool { return byte; })
+                     ? "true"
+                     : "false");
+        break;
+      case dwarf::DW_ATE_signed:
+      case dwarf::DW_ATE_signed_char:
         appendCastedValue(*V, T, /*IsUnsigned=*/false);
-      } else if (Name.starts_with("unsigned _BitInt")) {
+        break;
+      case dwarf::DW_ATE_unsigned:
+      case dwarf::DW_ATE_unsigned_char:
         appendCastedValue(*V, T, /*IsUnsigned=*/true);
+        break;
       }
       continue;
     }
     if (C.getTag() == dwarf::DW_TAG_GNU_template_template_param) {
+      Sep();
       const char *RawName =
           detail::toString(C.find(dwarf::DW_AT_GNU_template_name));
       assert(RawName);
       StringRef Name = RawName;
-      Sep();
       OS << Name;
       continue;
     }
-    if (C.getTag() != dwarf::DW_TAG_template_type_parameter)
+    if (C.getTag() == dwarf::DW_TAG_template_type_parameter) {
+      Sep();
+      DieType T = detail::unwrapReferencedTypedefType(C);
+      if (!T)
+        continue;
+      appendQualifiedName(T);
       continue;
-    Sep();
-
-    appendQualifiedName(detail::unwrapReferencedTypedefType(C));
+    }
   }
   if (IsTemplate && *FirstParameter && FirstParameter == &FirstParameterValue) {
     OS << '<';
@@ -845,10 +934,43 @@ void DWARFTypePrinter<DieType>::appendScopes(DieType D) {
   if (D.getTag() == dwarf::DW_TAG_lexical_block)
     return;
   D = D.resolveTypeUnitReference();
-  if (DieType P = D.getParent())
+  if (DieType P = appendZigImport(D))
     appendScopes(P);
-  appendUnqualifiedName(D);
-  OS << "::";
+  else {
+    OS << '.';
+    return;
+  }
+  if (D.getLanguage() == dwarf::DW_LANG_Zig) {
+    if (D.getTag() == dwarf::DW_TAG_module)
+      OS << "@import(\"";
+    appendUnqualifiedName(D);
+    if (D.getTag() == dwarf::DW_TAG_module)
+      OS << "\")";
+    OS << '.';
+  } else {
+    appendUnqualifiedName(D);
+    OS << "::";
+  }
+}
+
+template <typename DieType>
+DieType DWARFTypePrinter<DieType>::appendZigImport(DieType D) {
+  DieType Mod;
+  if (auto P = D.findRecursively(dwarf::DW_AT_ZIG_parent))
+    Mod = detail::resolveReferencedType(D, *P);
+  else
+    Mod = D.getParent();
+  if (!D || D.getLanguage() != dwarf::DW_LANG_Zig || !Mod ||
+      Mod.getTag() != dwarf::DW_TAG_module)
+    return Mod;
+  std::string File =
+      D.getDeclFile(DILineInfoSpecifier::FileLineInfoKind::RawValue);
+  if (File.empty())
+    return Mod;
+  OS << "@import(\"";
+  appendUnqualifiedName(Mod);
+  OS << "\", \"" << File << "\")";
+  return DieType();
 }
 } // namespace llvm
 

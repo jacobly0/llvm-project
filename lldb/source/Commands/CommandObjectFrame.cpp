@@ -728,9 +728,16 @@ protected:
                 StackFrame::eExpressionPathOptionsInspectAnonymousUnions |
                 StackFrame::eExpressionPathOptionsAllowVarUpdates;
             lldb::VariableSP var_sp;
+            lldb::DILMode dil_mode = lldb::eDILModeFull;
+            SourceLanguage language = frame->GuessLanguage();
+            if (language.AsLanguageType() == eLanguageTypeZig) {
+              expr_path_options &=
+                  ~StackFrame::eExpressionPathOptionCheckPtrVsMember;
+              dil_mode = lldb::eDILModeZig;
+            }
             valobj_sp = frame->GetValueForVariableExpressionPath(
                 entry.ref(), m_varobj_options.use_dynamic, expr_path_options,
-                var_sp, error);
+                var_sp, error, dil_mode);
             // Check only the `error` argument, because doing
             // `valobj_sp->GetError()` will update the value and potentially
             // return a new error that happens during the update, even if
@@ -755,8 +762,11 @@ protected:
                   valobj_sp->GetPreferredDisplayLanguage());
 
               Stream &output_stream = result.GetOutputStream();
-              options.SetRootValueObjectName(
-                  valobj_sp->GetParent() ? entry.c_str() : nullptr);
+              options.SetRootValueObjectName(language.AsLanguageType() ==
+                                                         eLanguageTypeZig ||
+                                                     valobj_sp->GetParent()
+                                                 ? entry.c_str()
+                                                 : nullptr);
 
               // If there is an error while updating the value, it will be
               // printed here as the contents of the value, e.g.
