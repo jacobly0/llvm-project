@@ -98,6 +98,7 @@ public:
   uint8_t getCodeByteSize() const { return CodeByteSize; }
   dwarf::Tag getTag() const { return Tag; }
   bool hasChildren() const { return HasChildren; }
+  bool hasParentAttr() const { return HasParentAttr; }
 
   using attr_iterator_range =
       iterator_range<AttributeSpecVector::const_iterator>;
@@ -214,6 +215,7 @@ private:
   dwarf::Tag Tag;
   uint8_t CodeByteSize;
   bool HasChildren;
+  bool HasParentAttr;
   AttributeSpecVector AttributeSpecs;
   /// If this abbreviation has a fixed byte size then FixedAttributeSize member
   /// variable below will have a value.

@@ -38,7 +38,7 @@ void DWARFAttributes::Append(const DWARFFormValue &form_value,
 
 bool DWARFAttributes::ExtractFormValueAtIndex(
     uint32_t i, DWARFFormValue &form_value) const {
-  const DWARFUnit *cu = CompileUnitAtIndex(i);
+  DWARFUnit *cu = CompileUnitAtIndex(i);
   form_value.SetUnit(cu);
   form_value.SetForm(FormAtIndex(i));
   if (form_value.Form() == DW_FORM_implicit_const) {

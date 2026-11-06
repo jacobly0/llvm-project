@@ -334,7 +334,7 @@ Interpreter::ArithmeticConversion(lldb::ValueObjectSP &lhs,
   return lhs_type;
 }
 
-static lldb::VariableSP DILFindVariable(ConstString name,
+static lldb::VariableSP DILFindVariable(ConstString name, bool quoted,
                                         VariableList &variable_list) {
   lldb::VariableSP exact_match;
   std::vector<lldb::VariableSP> possible_matches;
@@ -342,7 +342,8 @@ static lldb::VariableSP DILFindVariable(ConstString name,
   for (lldb::VariableSP var_sp : variable_list) {
     llvm::StringRef str_ref_name = var_sp->GetName().GetStringRef();
 
-    str_ref_name.consume_front("::");
+    if (!quoted)
+      str_ref_name.consume_front("::");
     // Check for the exact same match
     if (str_ref_name == name.GetStringRef())
       return var_sp;
@@ -360,6 +361,7 @@ static lldb::VariableSP DILFindVariable(ConstString name,
 }
 
 lldb::ValueObjectSP LookupGlobalIdentifier(llvm::StringRef name_ref,
+                                           bool quoted,
                                            ExecutionContext &exe_ctx,
                                            lldb::DynamicValueType use_dynamic) {
   // Get a global variables list without the locals from the current frame
@@ -372,11 +374,12 @@ lldb::ValueObjectSP LookupGlobalIdentifier(llvm::StringRef name_ref,
   if (symbol_context.comp_unit)
     variable_list = symbol_context.comp_unit->GetVariableList(true);
 
-  name_ref.consume_front("::");
+  if (!quoted)
+    name_ref.consume_front("::");
   lldb::ValueObjectSP value_sp;
   if (variable_list) {
     lldb::VariableSP var_sp =
-        DILFindVariable(ConstString(name_ref), *variable_list);
+        DILFindVariable(ConstString(name_ref), quoted, *variable_list);
     if (var_sp)
       value_sp = frame_sp->GetValueObjectForFrameVariable(var_sp, use_dynamic);
   }
@@ -395,10 +398,10 @@ lldb::ValueObjectSP LookupGlobalIdentifier(llvm::StringRef name_ref,
 
   if (!modules_var_list.Empty()) {
     lldb::VariableSP var_sp =
-        DILFindVariable(ConstString(name_ref), modules_var_list);
+        DILFindVariable(ConstString(name_ref), quoted, modules_var_list);
     if (var_sp)
-      value_sp = ValueObjectVariable::Create(
-          exe_ctx.GetBestExecutionContextScope(), var_sp);
+      value_sp =
+          var_sp->CreateValueObject(exe_ctx.GetBestExecutionContextScope());
 
     if (value_sp)
       return value_sp;
@@ -423,7 +426,7 @@ lldb::ValueObjectSP LookupPersistentIdentifier(llvm::StringRef name_ref,
   return nullptr;
 }
 
-lldb::ValueObjectSP LookupIdentifier(llvm::StringRef name_ref,
+lldb::ValueObjectSP LookupIdentifier(llvm::StringRef name_ref, bool quoted,
                                      ExecutionContext &exe_ctx,
                                      lldb::DynamicValueType use_dynamic) {
   // Support $rax as a special syntax for accessing registers.
@@ -431,7 +434,7 @@ lldb::ValueObjectSP LookupIdentifier(llvm::StringRef name_ref,
   auto frame_sp = exe_ctx.GetFrameSP();
   if (!frame_sp)
     return nullptr;
-  if (name_ref.consume_front("$")) {
+  if (!quoted && name_ref.consume_front("$")) {
     lldb::RegisterContextSP reg_ctx(frame_sp->GetRegisterContext());
     if (!reg_ctx)
       return nullptr;
@@ -443,7 +446,7 @@ lldb::ValueObjectSP LookupIdentifier(llvm::StringRef name_ref,
     return nullptr;
   }
 
-  if (!name_ref.contains("::")) {
+  if (quoted || !name_ref.contains("::")) {
     // Lookup in the current frame.
     // Try looking for a local variable in current scope.
     lldb::VariableListSP variable_list(frame_sp->GetInScopeVariableList(false));
@@ -566,17 +569,18 @@ llvm::Expected<lldb::ValueObjectSP>
 Interpreter::Visit(const IdentifierNode &node) {
   lldb::DynamicValueType use_dynamic = m_use_dynamic;
 
-  lldb::ValueObjectSP identifier =
-      LookupIdentifier(node.GetName(), m_exe_ctx, use_dynamic);
+  lldb::ValueObjectSP identifier = LookupIdentifier(
+      node.GetName(), node.GetQuoted(), m_exe_ctx, use_dynamic);
 
   if (!identifier && m_allow_globals)
-    identifier = LookupGlobalIdentifier(node.GetName(), m_exe_ctx, use_dynamic);
+    identifier = LookupGlobalIdentifier(node.GetName(), node.GetQuoted(),
+                                        m_exe_ctx, use_dynamic);
 
-  if (!identifier)
+  if (!identifier && !node.GetQuoted())
     identifier = LookupEnumValue(node.GetName(), m_exe_ctx);
 
-  if (!identifier && node.GetName()[0] == '$') {
-    auto language = GetSourceLanguageFromCU();
+  auto language = GetSourceLanguageFromCU();
+  if (!identifier && !node.GetQuoted() && node.GetName()[0] == '$') {
     if (language)
       identifier =
           LookupPersistentIdentifier(node.GetName(), m_exe_ctx, language.get());
@@ -585,7 +589,22 @@ Interpreter::Visit(const IdentifierNode &node) {
       llvm::consumeError(language.takeError());
   }
 
-  if (!identifier && node.GetName() == "nullptr") {
+  std::optional<llvm::StringRef> null_id;
+  if (language)
+    switch (*language) {
+    default:
+      break;
+    case lldb::eLanguageTypeC_plus_plus_11:
+    case lldb::eLanguageTypeC_plus_plus_14:
+    case lldb::eLanguageTypeC_plus_plus_17:
+    case lldb::eLanguageTypeC_plus_plus_20:
+      null_id = "nullptr";
+      break;
+    case lldb::eLanguageTypeZig:
+      null_id = "null";
+      break;
+    }
+  if (!identifier && node.GetName() == null_id) {
     // If we got a "nullptr" identifier, and there is no defined variable with
     // this name, resolve it as a null pointer.
     llvm::Expected<lldb::TypeSystemSP> type_system = GetTypeSystemFromCU();
@@ -1551,7 +1570,7 @@ Interpreter::Visit(const MemberOfNode &node) {
   lldb::ValueObjectSP base = *base_or_err;
 
   // Perform some basic type & correctness checking.
-  if (node.GetIsArrow()) {
+  if (expr_is_ptr) {
     // If we have a non-pointer type with a synthetic value then lets check
     // if we have a synthetic dereference specified.
     if (!base->IsPointerType() && base->HasSyntheticValue()) {
@@ -1736,8 +1755,7 @@ Interpreter::Visit(const ArraySubscriptNode &node) {
       return llvm::make_error<DILDiagnosticError>(m_expr, std::move(err_msg),
                                                   node.GetLocation());
     }
-  } else if (base_type.IsArrayType(nullptr, nullptr, &is_incomplete_array) ||
-             base_type.IsVectorType()) {
+  } else if (base_type.IsIndexableType(&is_incomplete_array)) {
     child_valobj_sp = base->GetChildAtIndex(child_idx);
     if (!child_valobj_sp && (is_incomplete_array || m_use_synthetic))
       child_valobj_sp = base->GetSyntheticArrayMember(child_idx, true);
@@ -2243,7 +2261,7 @@ llvm::Expected<lldb::ValueObjectSP> Interpreter::Visit(const SizeOfNode &node) {
   llvm::Expected<lldb::TypeSystemSP> type_system = GetTypeSystemFromCU();
   if (!type_system)
     return type_system.takeError();
-  CompilerType size_type = type_system.get()->GetSizeType();
+  CompilerType size_type = type_system.get()->GetSizeType(false);
   if (!size_type)
     return llvm::make_error<DILDiagnosticError>(
         m_expr, "unable to determine size type", node.GetLocation());

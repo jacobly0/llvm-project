@@ -163,7 +163,8 @@ void CommandObjectDWIMPrint::DoExecute(StringRef command,
   // both operators can be overloaded in C++, and could result in ambiguity in
   // how the expression is handled. Additionally, `*` and `&` are not supported.
   const bool try_variable_path =
-      !expr.contains("->") && expr.find_first_of("*&[]") == StringRef::npos;
+      language.AsLanguageType() == lldb::eLanguageTypeZig ||
+      (!expr.contains("->") && expr.find_first_of("*&[]") == StringRef::npos);
   if (frame && try_variable_path) {
     VariableSP var_sp;
     Status status;
@@ -171,7 +172,10 @@ void CommandObjectDWIMPrint::DoExecute(StringRef command,
         expr, eval_options.GetUseDynamic(),
         StackFrame::eExpressionPathOptionsAllowDirectIVarAccess |
             StackFrame::eExpressionPathOptionsDisallowGlobals,
-        var_sp, status, lldb::eDILModeSimple);
+        var_sp, status,
+        language.AsLanguageType() == lldb::eLanguageTypeZig
+            ? lldb::eDILModeZig
+            : lldb::eDILModeSimple);
     if (valobj_sp && status.Success() && valobj_sp->GetError().Success()) {
       if (!suppress_result) {
         if (auto persisted_valobj = valobj_sp->Persist())

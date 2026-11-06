@@ -230,6 +230,13 @@ public:
     }
   };
 
+  struct DeclInfo {
+    std::optional<object::SectionedAddress> Address;
+    std::optional<uint64_t> Line;
+    std::optional<uint64_t> Column;
+    std::optional<uint64_t> File;
+  };
+
   struct LineTable {
     LLVM_ABI LineTable();
 
@@ -297,8 +304,9 @@ public:
 
     /// Parse prologue and all rows.
     LLVM_ABI Error parse(DWARFDataExtractor &DebugLineData, uint64_t *OffsetPtr,
-                         const DWARFContext &Ctx, const DWARFUnit *U,
+                         const DWARFContext &Ctx, DWARFUnit *U,
                          function_ref<void(Error)> RecoverableErrorHandler,
+                         function_ref<DeclInfo(uint64_t)> DeclLookup = nullptr,
                          raw_ostream *OS = nullptr, bool Verbose = false);
 
     using RowVector = std::vector<Row>;
@@ -339,8 +347,9 @@ public:
   LLVM_ABI const LineTable *getLineTable(uint64_t Offset) const;
   LLVM_ABI Expected<const LineTable *>
   getOrParseLineTable(DWARFDataExtractor &DebugLineData, uint64_t Offset,
-                      const DWARFContext &Ctx, const DWARFUnit *U,
-                      function_ref<void(Error)> RecoverableErrorHandler);
+                      const DWARFContext &Ctx, DWARFUnit *U,
+                      function_ref<void(Error)> RecoverableErrorHandler,
+                      function_ref<DeclInfo(uint64_t)> DeclLookup = nullptr);
   LLVM_ABI void clearLineTable(uint64_t Offset);
 
   /// Helper to allow for parsing of an entire .debug_line section in sequence.

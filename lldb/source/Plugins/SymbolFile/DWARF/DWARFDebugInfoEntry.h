@@ -49,7 +49,7 @@ public:
                                       DWARFDebugAranges *debug_aranges) const;
 
   bool Extract(const DWARFDataExtractor &data, const DWARFUnit &cu,
-               lldb::offset_t *offset_ptr);
+               lldb::offset_t *offset_ptr, bool *has_parent_attr = nullptr);
 
   using Recurse = DWARFBaseDIE::Recurse;
 
@@ -75,39 +75,39 @@ public:
   DWARFAttributes GetAttributes(const DWARFUnit *cu,
                                 Recurse recurse = Recurse::yes) const;
 
-  dw_offset_t GetAttributeValue(const DWARFUnit *cu, const dw_attr_t attr,
+  dw_offset_t GetAttributeValue(DWARFUnit *cu, const dw_attr_t attr,
                                 DWARFFormValue &formValue,
                                 dw_offset_t *end_attr_offset_ptr = nullptr,
                                 bool check_elaborating_dies = false) const;
 
   const char *
-  GetAttributeValueAsString(const DWARFUnit *cu, const dw_attr_t attr,
+  GetAttributeValueAsString(DWARFUnit *cu, const dw_attr_t attr,
                             const char *fail_value,
                             bool check_elaborating_dies = false) const;
 
   uint64_t
-  GetAttributeValueAsUnsigned(const DWARFUnit *cu, const dw_attr_t attr,
+  GetAttributeValueAsUnsigned(DWARFUnit *cu, const dw_attr_t attr,
                               uint64_t fail_value,
                               bool check_elaborating_dies = false) const;
 
   std::optional<uint64_t> GetAttributeValueAsOptionalUnsigned(
-      const DWARFUnit *cu, const dw_attr_t attr,
+      DWARFUnit *cu, const dw_attr_t attr,
       bool check_elaborating_dies = false) const;
 
   DWARFDIE
-  GetAttributeValueAsReference(const DWARFUnit *cu, const dw_attr_t attr,
+  GetAttributeValueAsReference(DWARFUnit *cu, const dw_attr_t attr,
                                bool check_elaborating_dies = false) const;
 
   uint64_t
-  GetAttributeValueAsAddress(const DWARFUnit *cu, const dw_attr_t attr,
+  GetAttributeValueAsAddress(DWARFUnit *cu, const dw_attr_t attr,
                              uint64_t fail_value,
                              bool check_elaborating_dies = false) const;
 
-  dw_addr_t GetAttributeHighPC(const DWARFUnit *cu, dw_addr_t lo_pc,
+  dw_addr_t GetAttributeHighPC(DWARFUnit *cu, dw_addr_t lo_pc,
                                uint64_t fail_value,
                                bool check_elaborating_dies = false) const;
 
-  bool GetAttributeAddressRange(const DWARFUnit *cu, dw_addr_t &lo_pc,
+  bool GetAttributeAddressRange(DWARFUnit *cu, dw_addr_t &lo_pc,
                                 dw_addr_t &hi_pc, uint64_t fail_value,
                                 bool check_elaborating_dies = false) const;
 
@@ -115,19 +115,23 @@ public:
   GetAttributeAddressRanges(DWARFUnit *cu, bool check_hi_lo_pc,
                             bool check_elaborating_dies = false) const;
 
-  const char *GetName(const DWARFUnit *cu) const;
+  const char *GetName(DWARFUnit *cu) const;
 
-  const char *GetMangledName(const DWARFUnit *cu,
+  const char *GetMangledName(DWARFUnit *cu,
                              bool substitute_name_allowed = true) const;
 
-  const char *GetPubname(const DWARFUnit *cu) const;
+  const char *GetPubname(DWARFUnit *cu) const;
+
+  std::optional<std::pair<DWARFUnit *, size_t>>
+  GetAttributeDeclFile(DWARFUnit *cu) const;
 
   bool GetDIENamesAndRanges(
       DWARFUnit *cu, const char *&name, const char *&mangled,
-      llvm::DWARFAddressRangesVector &rangeList, std::optional<int> &decl_file,
+      llvm::DWARFAddressRangesVector &rangeList,
+      std::optional<std::pair<DWARFUnit *, size_t>> &decl_file,
       std::optional<int> &decl_line, std::optional<int> &decl_column,
-      std::optional<int> &call_file, std::optional<int> &call_line,
-      std::optional<int> &call_column,
+      std::optional<std::pair<DWARFUnit *, size_t>> &call_file,
+      std::optional<int> &call_line, std::optional<int> &call_column,
       DWARFExpressionList *frame_base = nullptr) const;
 
   const llvm::DWARFAbbreviationDeclaration *
@@ -147,11 +151,11 @@ public:
 
   // We know we are kept in a vector of contiguous entries, so we know
   // our parent will be some index behind "this".
-  DWARFDebugInfoEntry *GetParent() {
-    return m_parent_idx > 0 ? this - m_parent_idx : nullptr;
+  DWARFDebugInfoEntry *GetParent(DWARFUnit *cu) {
+    return m_parent_idx > 0 ? this - m_parent_idx : GetParentAttr(cu);
   }
-  const DWARFDebugInfoEntry *GetParent() const {
-    return m_parent_idx > 0 ? this - m_parent_idx : nullptr;
+  const DWARFDebugInfoEntry *GetParent(DWARFUnit *cu) const {
+    return m_parent_idx > 0 ? this - m_parent_idx : GetParentAttr(cu);
   }
   // We know we are kept in a vector of contiguous entries, so we know
   // our sibling will be some index after "this".
@@ -177,7 +181,7 @@ public:
   // This function returns true if the variable scope is either
   // global or (file-static). It will return false for static variables
   // that are local to a function, as they have local scope.
-  bool IsGlobalOrStaticScopeVariable() const;
+  bool IsGlobalOrStaticScopeVariable(DWARFUnit *cu) const;
 
 protected:
   // Up to 2TB offset within the .debug_info/.debug_types
@@ -194,6 +198,9 @@ protected:
   /// A copy of the DW_TAG value so we don't have to go through the compile
   /// unit abbrev table
   dw_tag_t m_tag = llvm::dwarf::DW_TAG_null;
+
+private:
+  DWARFDebugInfoEntry *GetParentAttr(DWARFUnit *cu) const;
 };
 } // namespace dwarf
 } // namespace lldb_private::plugin

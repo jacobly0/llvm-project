@@ -53,6 +53,11 @@ public:
                      const lldb_private::plugin::dwarf::DWARFDIE &die,
                      bool *type_is_new_ptr) override;
 
+  lldb::VariableSP
+  ParseVariableFromDWARF(const lldb_private::SymbolContext &sc,
+                         const lldb_private::plugin::dwarf::DWARFDIE &die,
+                         const lldb::addr_t low_pc) override;
+
   lldb_private::Function *
   ParseFunctionFromDWARF(lldb_private::CompileUnit &comp_unit,
                          const lldb_private::plugin::dwarf::DWARFDIE &die,

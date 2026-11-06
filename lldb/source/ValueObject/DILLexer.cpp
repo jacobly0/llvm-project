@@ -16,96 +16,99 @@
 #include "lldb/Utility/Status.h"
 #include "lldb/ValueObject/DILParser.h"
 #include "llvm/ADT/StringSwitch.h"
+#include "llvm/Support/ConvertUTF.h"
 
 namespace lldb_private::dil {
 
 llvm::StringRef Token::GetTokenName(Kind kind) {
   switch (kind) {
-  case Kind::amp:
+  case Token::amp:
     return "amp";
-  case Kind::ampamp:
+  case Token::ampamp:
     return "ampamp";
-  case Kind::ampequal:
+  case Token::ampequal:
     return "ampequal";
-  case Kind::arrow:
+  case Token::arrow:
     return "arrow";
-  case Kind::caret:
+  case Token::caret:
     return "caret";
-  case Kind::caretequal:
+  case Token::caretequal:
     return "caretequal";
-  case Kind::colon:
+  case Token::colon:
     return "colon";
-  case Kind::coloncolon:
+  case Token::coloncolon:
     return "coloncolon";
-  case Kind::equal:
+  case Token::equal:
     return "equal";
-  case Kind::exclaim:
+  case Token::exclaim:
     return "exclaim";
-  case Kind::eof:
+  case Token::eof:
     return "eof";
-  case Kind::equalequal:
+  case Token::equalequal:
     return "equalequal";
-  case Kind::exclaimequal:
+  case Token::exclaimequal:
     return "exclaimequal";
-  case Kind::float_constant:
+  case Token::float_constant:
     return "float_constant";
-  case Kind::greater:
+  case Token::greater:
     return "greater";
-  case Kind::greaterequal:
+  case Token::greaterequal:
     return "greaterequal";
-  case Kind::greatergreater:
+  case Token::greatergreater:
     return "greatergreater";
-  case Kind::greatergreaterequal:
+  case Token::greatergreaterequal:
     return "greatergreaterequal";
-  case Kind::identifier:
+  case Token::identifier:
     return "identifier";
-  case Kind::integer_constant:
+  case Token::zig_quoted_identifier:
+    return "zig_quoted_identifier";
+  case Token::integer_constant:
     return "integer_constant";
-  case Kind::kw_false:
+  case Token::kw_false:
     return "false";
-  case Kind::kw_true:
+  case Token::kw_true:
     return "true";
-  case Kind::l_paren:
+  case Token::l_paren:
     return "l_paren";
-  case Kind::l_square:
+  case Token::l_square:
     return "l_square";
-  case Kind::less:
+  case Token::less:
     return "less";
-  case Kind::lessequal:
+  case Token::lessequal:
     return "lessequal";
-  case Kind::lessless:
+  case Token::lessless:
     return "lessless";
-  case Kind::lesslessequal:
+  case Token::lesslessequal:
     return "lesslessequal";
-  case Kind::minus:
+  case Token::minus:
     return "minus";
-  case Kind::minusequal:
+  case Token::minusequal:
     return "minusequal";
-  case Kind::minusminus:
+  case Token::minusminus:
     return "minusminus";
   case Token::percent:
     return "percent";
   case Token::percentequal:
     return "percentequal";
-  case Kind::period:
+  case Token::period:
     return "period";
-  case Kind::pipe:
+  case Token::pipe:
     return "pipe";
-  case Kind::pipeequal:
+  case Token::pipeequal:
     return "pipeequal";
-  case Kind::pipepipe:
+  case Token::pipepipe:
     return "pipepipe";
-  case Kind::plus:
+  case Token::plus:
     return "plus";
-  case Kind::plusequal:
+  case Token::plusequal:
     return "plusequal";
-  case Kind::plusplus:
+  case Token::plusplus:
     return "plusplus";
-  case Kind::question:
+  case Token::question:
     return "question";
-  case Kind::r_paren:
+  case Token::r_paren:
     return "r_paren";
-  case Kind::r_square:
+  case Token::r_square:
     return "r_square";
   case Token::slash:
     return "slash";
@@ -139,6 +142,70 @@ static std::optional<llvm::StringRef> IsWord(llvm::StringRef expr,
     return std::nullopt;
   remainder = remainder.drop_front(candidate.size());
   return candidate;
+}
+
+static std::optional<std::string> IsZigQuotedWord(llvm::StringRef expr,
+                                                  llvm::StringRef &remainder) {
+  llvm::StringRef candidate = remainder;
+  if (!candidate.consume_front("@\""))
+    return std::nullopt;
+  std::string spelling;
+  while (true) {
+    if (candidate.empty())
+      return std::nullopt;
+    char c = candidate.front();
+    candidate = candidate.drop_front();
+    switch (c) {
+    default:
+      spelling.push_back(c);
+      break;
+    case '\"':
+      remainder = candidate;
+      return spelling;
+    case '\\':
+      c = candidate.front();
+      candidate = candidate.drop_front();
+      switch (c) {
+      default:
+        return std::nullopt;
+      case 'n':
+        spelling.push_back('\n');
+        break;
+      case 'r':
+        spelling.push_back('\r');
+        break;
+      case 't':
+        spelling.push_back('\t');
+        break;
+      case '\\':
+      case '\'':
+      case '\"':
+        spelling.push_back(c);
+        break;
+      case 'x': {
+        uint8_t byte;
+        if (candidate.take_front(2).getAsInteger(16, byte))
+          return std::nullopt;
+        candidate = candidate.drop_front(2);
+        spelling.push_back(byte);
+        break;
+      }
+      case 'u': {
+        uint32_t codepoint;
+        size_t spellingPos = spelling.size();
+        spelling.resize(spellingPos + UNI_MAX_UTF8_BYTES_PER_CODE_POINT);
+        char *spellingPtr = &spelling[spellingPos];
+        if (!candidate.consume_front("{") ||
+            candidate.consumeInteger(16, codepoint) ||
+            !llvm::ConvertCodePointToUTF8(codepoint, spellingPtr) ||
+            !candidate.consume_front("}"))
+          return std::nullopt;
+        spelling.resize(spellingPtr - spelling.data());
+        break;
+      }
+      }
+    }
+  }
 }
 
 static bool IsNumberBodyChar(char ch) {
@@ -192,6 +259,18 @@ static llvm::Error IsNotAllowedByMode(llvm::StringRef expr, Token token,
     }
     break;
   case lldb::eDILModeFull:
+    if (token.IsOneOf({Token::zig_quoted_identifier, Token::question})) {
+      return llvm::make_error<DILDiagnosticError>(
+          expr, llvm::formatv("{0} is not allowed in DIL full mode", token),
+          token.GetLocation());
+    }
+    break;
+  case lldb::eDILModeZig:
+    if (token.IsOneOf({Token::arrow, Token::coloncolon})) {
+      return llvm::make_error<DILDiagnosticError>(
+          expr, llvm::formatv("{0} is not allowed in DIL zig mode", token),
+          token.GetLocation());
+    }
     break;
   }
   return llvm::Error::success();
@@ -239,14 +318,18 @@ llvm::Expected<Token> DILLexer::Lex(llvm::StringRef expr,
     auto kind = isFloat ? Token::float_constant : Token::integer_constant;
     return Token(kind, maybe_number->str(), position);
   }
-  std::optional<llvm::StringRef> maybe_word = IsWord(expr, remainder);
-  if (maybe_word) {
+  if (std::optional<llvm::StringRef> maybe_word = IsWord(expr, remainder)) {
     llvm::StringRef word = *maybe_word;
     Token::Kind kind = llvm::StringSwitch<Token::Kind>(word)
                            .Case("false", Token::kw_false)
                            .Case("true", Token::kw_true)
                            .Default(Token::identifier);
     return Token(kind, word.str(), position);
+  }
+  if (std::optional<std::string> maybe_zig_quoted_word =
+          IsZigQuotedWord(expr, remainder)) {
+    return Token(Token::zig_quoted_identifier, *maybe_zig_quoted_word,
+                 position);
   }
 
   // IMPORTANT: If two or more tokens share the same prefix, the tokens need to

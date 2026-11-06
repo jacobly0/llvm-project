@@ -1392,11 +1392,13 @@ public:
                             bool *did_read_live_memory = nullptr);
 
   size_t ReadCStringFromMemory(const Address &addr, std::string &out_str,
-                               Status &error, bool force_live_memory = false);
+                               Status &error, bool force_live_memory = false,
+                               char terminator = '\0');
 
   size_t ReadCStringFromMemory(const Address &addr, char *dst,
                                size_t dst_max_len, Status &result_error,
-                               bool force_live_memory = false);
+                               bool force_live_memory = false,
+                               char terminator = '\0');
 
   /// Read a null-terminated string from memory
   ///

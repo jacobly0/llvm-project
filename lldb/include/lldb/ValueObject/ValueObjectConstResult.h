@@ -85,6 +85,7 @@ public:
                                     ValueObjectManager *manager = nullptr);
 
   llvm::Expected<uint64_t> GetByteSize() override;
+  llvm::Expected<uint64_t> GetBitSize() override;
 
   lldb::ValueType GetValueType() const override;
 
@@ -95,8 +96,6 @@ public:
   ConstString GetDisplayTypeName() override;
 
   bool IsInScope() override;
-
-  void SetByteSize(size_t size);
 
   lldb::ValueObjectSP Dereference(Status &error) override;
 
@@ -132,6 +131,7 @@ protected:
 
   ConstString m_type_name;
   std::optional<uint64_t> m_byte_size;
+  std::optional<uint64_t> m_bit_size;
 
   ValueObjectConstResultImpl m_impl;
 
