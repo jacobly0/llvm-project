@@ -116,6 +116,12 @@ llvm::Expected<uint64_t> ValueObjectVariable::GetByteSize() {
   CompilerType type(GetCompilerType());
   return type.GetByteSize(exe_ctx.GetBestExecutionContextScope());
 }
+llvm::Expected<uint64_t> ValueObjectVariable::GetBitSize() {
+  ExecutionContext exe_ctx(GetExecutionContextRef());
+
+  CompilerType type(GetCompilerType());
+  return type.GetBitSize(exe_ctx.GetBestExecutionContextScope());
+}
 
 lldb::ValueType ValueObjectVariable::GetValueType() const {
   if (m_variable_sp)

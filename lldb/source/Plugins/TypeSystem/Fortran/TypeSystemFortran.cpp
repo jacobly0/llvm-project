@@ -272,6 +272,14 @@ TypeSystemFortran::GetFunctionReturnType(lldb::opaque_compiler_type_t type) {
 }
 
 Expected<uint64_t>
+TypeSystemFortran::GetByteSize(opaque_compiler_type_t type,
+                               ExecutionContextScope *exe_scope) {
+  if (!type)
+    return 0;
+  return UINT64_C(8) * static_cast<FortranType *>(type)->GetBitSize();
+}
+
+Expected<uint64_t>
 TypeSystemFortran::GetBitSize(opaque_compiler_type_t type,
                               ExecutionContextScope *exe_scope) {
   if (!type)

@@ -65,28 +65,37 @@ Error DWARFDebugAddrTable::extractV5(const DWARFDataExtractor &Data,
         Offset, DiagnosticLength);
   }
   uint64_t EndOffset = *OffsetPtr + Length;
-  // Ensure that we can read the remaining header fields.
-  if (Length < 4) {
+
+  Version = Data.getU16(OffsetPtr);
+  if (Version == 0) {
+    AddrSize = 0;
+    SegSize = 0;
+    Addrs.clear();
+  } else {
+    AddrSize = Data.getU8(OffsetPtr);
+    SegSize = Data.getU8(OffsetPtr);
+  }
+  if (!Data.isValidOffset(*OffsetPtr - 1)) {
     uint64_t DiagnosticLength = Length;
     invalidateLength();
     return createStringError(
         errc::invalid_argument,
-        "address table at offset 0x%" PRIx64
-        " has a unit_length value of 0x%" PRIx64
-        ", which is too small to contain a complete header",
+        "section is not large enough to contain an address table "
+        "at offset 0x%" PRIx64 " with a unit_length value of 0x%" PRIx64,
         Offset, DiagnosticLength);
   }
 
-  Version = Data.getU16(OffsetPtr);
-  AddrSize = Data.getU8(OffsetPtr);
-  SegSize = Data.getU8(OffsetPtr);
-
   // Perform a basic validation of the header fields.
-  if (Version != 5)
+  if (Version != 5) {
+    if (Version == 0) {
+      *OffsetPtr = EndOffset;
+      return Error::success();
+    }
     return createStringError(errc::not_supported,
                              "address table at offset 0x%" PRIx64
                              " has unsupported version %" PRIu16,
                              Offset, Version);
+  }
   // TODO: add support for non-zero segment selector size.
   if (SegSize != 0)
     return createStringError(errc::not_supported,
@@ -144,9 +153,11 @@ void DWARFDebugAddrTable::dump(raw_ostream &OS, DIDumpOptions DumpOpts) const {
        << formatv("length = 0x{0:x-}",
                   fmt_align(Length, AlignStyle::Right, OffsetDumpWidth, '0'))
        << ", format = " << dwarf::FormatString(Format)
-       << formatv(", version = {0:x+4}", Version)
-       << formatv(", addr_size = {0:x+2}", AddrSize)
-       << formatv(", seg_size = {0:x+2}", SegSize) << "\n";
+       << formatv(", version = {0:x+4}", Version);
+    if (Version != 0)
+      OS << formatv(", addr_size = {0:x+2}", AddrSize)
+         << formatv(", seg_size = {0:x+2}", SegSize);
+    OS << "\n";
   }
 
   if (Addrs.size() > 0) {

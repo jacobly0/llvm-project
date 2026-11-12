@@ -93,7 +93,7 @@ elaborating_dies(const DWARFDIE &die) {
 DWARFDIE
 DWARFDIE::GetParent() const {
   if (IsValid())
-    return DWARFDIE(m_cu, m_die->GetParent());
+    return DWARFDIE(m_cu, m_die->GetParent(m_cu));
   else
     return DWARFDIE();
 }
@@ -583,10 +583,11 @@ bool DWARFDIE::IsMethod() const {
 
 bool DWARFDIE::GetDIENamesAndRanges(
     const char *&name, const char *&mangled,
-    llvm::DWARFAddressRangesVector &ranges, std::optional<int> &decl_file,
+    llvm::DWARFAddressRangesVector &ranges,
+    std::optional<std::pair<DWARFUnit *, size_t>> &decl_file,
     std::optional<int> &decl_line, std::optional<int> &decl_column,
-    std::optional<int> &call_file, std::optional<int> &call_line,
-    std::optional<int> &call_column,
+    std::optional<std::pair<DWARFUnit *, size_t>> &call_file,
+    std::optional<int> &call_line, std::optional<int> &call_column,
     lldb_private::DWARFExpressionList *frame_base) const {
   if (IsValid()) {
     return m_die->GetDIENamesAndRanges(
@@ -613,6 +614,25 @@ std::optional<DWARFFormValue> DWARFDIE::find(const dw_attr_t attr) const {
   if (m_die->GetAttributeValue(m_cu, attr, form_value, nullptr, false))
     return form_value;
   return std::nullopt;
+}
+
+std::optional<DWARFFormValue>
+DWARFDIE::findRecursively(const dw_attr_t attr) const {
+  DWARFFormValue form_value;
+  if (m_die->GetAttributeValue(m_cu, attr, form_value, nullptr, true))
+    return form_value;
+  return std::nullopt;
+}
+
+std::string
+DWARFDIE::getDeclFile(llvm::DILineInfoSpecifier::FileLineInfoKind Kind) const {
+  auto file = m_die->GetAttributeDeclFile(m_cu);
+  if (!file)
+    return {};
+  auto file_spec = file->first->GetFile(file->second);
+  if (Kind == llvm::DILineInfoSpecifier::FileLineInfoKind::RawValue)
+    return std::string(file_spec.GetFilename());
+  llvm_unreachable("TODO");
 }
 
 std::optional<uint64_t> DWARFDIE::getLanguage() const {

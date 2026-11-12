@@ -54,8 +54,8 @@ ValueObject *ValueObjectConstResultImpl::CreateChildAtIndex(size_t idx) {
   bool omit_empty_base_classes = true;
   bool ignore_array_bounds = false;
   std::string child_name;
-  uint32_t child_byte_size = 0;
-  int32_t child_byte_offset = 0;
+  uint64_t child_bit_size = 0;
+  int64_t child_bit_offset = 0;
   uint32_t child_bitfield_bit_size = 0;
   uint32_t child_bitfield_bit_offset = 0;
   bool child_is_base_class = false;
@@ -68,7 +68,7 @@ ValueObject *ValueObjectConstResultImpl::CreateChildAtIndex(size_t idx) {
 
   auto child_compiler_type_or_err = compiler_type.GetChildCompilerTypeAtIndex(
       &exe_ctx, idx, transparent_pointers, omit_empty_base_classes,
-      ignore_array_bounds, child_name, child_byte_size, child_byte_offset,
+      ignore_array_bounds, child_name, child_bit_size, child_bit_offset,
       child_bitfield_bit_size, child_bitfield_bit_offset, child_is_base_class,
       child_is_deref_of_parent, m_impl_backend, language_flags);
 
@@ -90,12 +90,15 @@ ValueObject *ValueObjectConstResultImpl::CreateChildAtIndex(size_t idx) {
   // value lives in memory, so the children live addresses aren't
   // offsets from that value, they are just other load addresses that
   // are recorded in the Value of the child ValueObjects.
-  if (m_live_address != LLDB_INVALID_ADDRESS && !compiler_type.IsPointerType())
-    child_live_addr = m_live_address + child_byte_offset;
+  if (m_live_address != LLDB_INVALID_ADDRESS &&
+      !compiler_type.IsPointerType()) {
+    assert(child_bit_offset % 8 == 0 && "bit offsets are not implemented");
+    child_live_addr = m_live_address + child_bit_offset / 8;
+  }
 
   return new ValueObjectConstResultChild(
       *m_impl_backend, *child_compiler_type_or_err, ConstString(child_name),
-      child_byte_size, child_byte_offset, child_bitfield_bit_size,
+      child_bit_size, child_bit_offset, child_bitfield_bit_size,
       child_bitfield_bit_offset, child_is_base_class, child_is_deref_of_parent,
       child_live_addr, language_flags);
 }
@@ -110,8 +113,8 @@ ValueObjectConstResultImpl::CreateSyntheticArrayMember(size_t idx) {
   bool omit_empty_base_classes = true;
   bool ignore_array_bounds = true;
   std::string child_name;
-  uint32_t child_byte_size = 0;
-  int32_t child_byte_offset = 0;
+  uint64_t child_bit_size = 0;
+  int64_t child_bit_offset = 0;
   uint32_t child_bitfield_bit_size = 0;
   uint32_t child_bitfield_bit_offset = 0;
   bool child_is_base_class = false;
@@ -125,7 +128,7 @@ ValueObjectConstResultImpl::CreateSyntheticArrayMember(size_t idx) {
 
   auto child_compiler_type_or_err = compiler_type.GetChildCompilerTypeAtIndex(
       &exe_ctx, 0, transparent_pointers, omit_empty_base_classes,
-      ignore_array_bounds, child_name, child_byte_size, child_byte_offset,
+      ignore_array_bounds, child_name, child_bit_size, child_bit_offset,
       child_bitfield_bit_size, child_bitfield_bit_offset, child_is_base_class,
       child_is_deref_of_parent, m_impl_backend, language_flags);
   // One might think we should check that the size of the children
@@ -140,7 +143,7 @@ ValueObjectConstResultImpl::CreateSyntheticArrayMember(size_t idx) {
     return nullptr;
   }
 
-  child_byte_offset += child_byte_size * idx;
+  child_bit_offset += idx * child_bit_size;
 
   lldb::addr_t child_live_addr = LLDB_INVALID_ADDRESS;
   // Transfer the live address (with offset) to the child.  But if
@@ -148,11 +151,14 @@ ValueObjectConstResultImpl::CreateSyntheticArrayMember(size_t idx) {
   // value lives in memory, so the children live addresses aren't
   // offsets from that value, they are just other load addresses that
   // are recorded in the Value of the child ValueObjects.
-  if (m_live_address != LLDB_INVALID_ADDRESS && !compiler_type.IsPointerType())
-    child_live_addr = m_live_address + child_byte_offset;
+  if (m_live_address != LLDB_INVALID_ADDRESS &&
+      !compiler_type.IsPointerType()) {
+    assert(child_bit_offset % 8 == 0 && "bit offsets are not implemented");
+    child_live_addr = m_live_address + child_bit_offset / 8;
+  }
   return new ValueObjectConstResultChild(
       *m_impl_backend, *child_compiler_type_or_err, ConstString(child_name),
-      child_byte_size, child_byte_offset, child_bitfield_bit_size,
+      child_bit_size, child_bit_offset, child_bitfield_bit_size,
       child_bitfield_bit_offset, child_is_base_class, child_is_deref_of_parent,
       child_live_addr, language_flags);
 }

@@ -17,6 +17,7 @@ add_lldb_library(lldbPluginSymbolFileDWARF PLUGIN
   DWARFASTParser.cpp
   DWARFASTParserClang.cpp
   DWARFASTParserFortran.cpp
+  DWARFASTParserZig.cpp
   DWARFAttribute.cpp
   DWARFBaseDIE.cpp
   DWARFCompileUnit.cpp
@@ -58,7 +59,9 @@ add_lldb_library(lldbPluginSymbolFileDWARF PLUGIN
     lldbPluginObjCLanguage
     lldbPluginCPlusPlusLanguage
     lldbPluginExpressionParserClang
+    lldbPluginExpressionParserZig
     lldbPluginTypeSystemClang
+    lldbPluginTypeSystemZig
   CLANG_LIBS
     clangAST
     clangBasic

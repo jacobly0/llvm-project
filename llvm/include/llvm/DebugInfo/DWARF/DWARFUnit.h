@@ -127,7 +127,7 @@ bool isCompileUnit(const std::unique_ptr<DWARFUnit> &U);
 /// Describe a collection of units. Intended to hold all units either from
 /// .debug_info and .debug_types, or from .debug_info.dwo and .debug_types.dwo.
 class DWARFUnitVector final : public SmallVector<std::unique_ptr<DWARFUnit>, 1> {
-  std::function<std::unique_ptr<DWARFUnit>(uint64_t, DWARFSectionKind,
+  std::function<std::unique_ptr<DWARFUnit>(uint64_t &, DWARFSectionKind,
                                            const DWARFSection *,
                                            const DWARFUnitIndex::Entry *)>
       Parser;

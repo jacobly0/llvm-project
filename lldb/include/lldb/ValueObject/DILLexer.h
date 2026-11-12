@@ -44,6 +44,7 @@ public:
     greatergreater,
     greatergreaterequal,
     identifier,
+    zig_quoted_identifier,
     integer_constant,
     kw_false,
     kw_true,

@@ -59,7 +59,7 @@ TypeAndOrName ItaniumABIRuntime::FindTypeInfoWithClangVTable(
            in_value.GetPointerValue().address, vars.GetSize());
 
   for (lldb::VariableSP var : vars) {
-    auto valobj = ValueObjectVariable::Create(m_process, var);
+    auto valobj = var->CreateValueObject(m_process);
     if (valobj->GetLoadAddress() != vtableBase)
       continue;
 

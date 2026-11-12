@@ -36,6 +36,9 @@ ValueObjectSynthesizedValue::~ValueObjectSynthesizedValue() = default;
 llvm::Expected<uint64_t> ValueObjectSynthesizedValue::GetByteSize() {
   return m_valobj_sp->GetByteSize();
 }
+llvm::Expected<uint64_t> ValueObjectSynthesizedValue::GetBitSize() {
+  return m_valobj_sp->GetBitSize();
+}
 
 llvm::Expected<uint32_t>
 ValueObjectSynthesizedValue::CalculateNumChildren(uint32_t max) {

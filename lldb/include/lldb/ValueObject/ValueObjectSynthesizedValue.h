@@ -36,6 +36,7 @@ public:
   lldb::ValueType GetValueType() const override { return m_type; }
 
   llvm::Expected<uint64_t> GetByteSize() override;
+  llvm::Expected<uint64_t> GetBitSize() override;
 
   llvm::Expected<uint32_t> CalculateNumChildren(uint32_t max) override;
 

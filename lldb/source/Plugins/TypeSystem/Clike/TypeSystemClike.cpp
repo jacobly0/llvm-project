@@ -195,7 +195,9 @@ CompilerType TypeSystemClike::GetPointerDiffType(bool is_signed) {
   return CompilerType();
 }
 
-CompilerType TypeSystemClike::GetSizeType() { return CompilerType(); }
+CompilerType TypeSystemClike::GetSizeType(bool is_signed) {
+  return CompilerType();
+}
 
 unsigned TypeSystemClike::GetPtrAuthKey(lldb::opaque_compiler_type_t type) {
   return 0;
@@ -354,19 +356,19 @@ CompilerType TypeSystemClike::GetVirtualBaseClassAtIndex(
 
 llvm::Expected<CompilerType> TypeSystemClike::GetDereferencedType(
     lldb::opaque_compiler_type_t type, ExecutionContext *exe_ctx,
-    std::string &deref_name, uint32_t &deref_byte_size,
-    int32_t &deref_byte_offset, ValueObject *valobj, uint64_t &language_flags) {
+    std::string &deref_name, uint64_t &deref_bit_size,
+    int64_t &deref_bit_offset, ValueObject *valobj, uint64_t &language_flags) {
   return CompilerType();
 }
 
 llvm::Expected<CompilerType> TypeSystemClike::GetChildCompilerTypeAtIndex(
     lldb::opaque_compiler_type_t type, ExecutionContext *exe_ctx, size_t idx,
     bool transparent_pointers, bool omit_empty_base_classes,
-    bool ignore_array_bounds, std::string &child_name,
-    uint32_t &child_byte_size, int32_t &child_byte_offset,
-    uint32_t &child_bitfield_bit_size, uint32_t &child_bitfield_bit_offset,
-    bool &child_is_base_class, bool &child_is_deref_of_parent,
-    ValueObject *valobj, uint64_t &language_flags) {
+    bool ignore_array_bounds, std::string &child_name, uint64_t &child_bit_size,
+    int64_t &child_bit_offset, uint32_t &child_bitfield_bit_size,
+    uint32_t &child_bitfield_bit_offset, bool &child_is_base_class,
+    bool &child_is_deref_of_parent, ValueObject *valobj,
+    uint64_t &language_flags) {
   return CompilerType();
 }
 

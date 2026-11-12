@@ -42,7 +42,11 @@ extern int g_verbose;
 // starting at the offset in offset_ptr
 bool DWARFDebugInfoEntry::Extract(const DWARFDataExtractor &data,
                                   const DWARFUnit &unit,
-                                  lldb::offset_t *offset_ptr) {
+                                  lldb::offset_t *offset_ptr,
+                                  bool *has_parent_attr) {
+  if (has_parent_attr)
+    *has_parent_attr = false;
+
   m_offset = *offset_ptr;
   auto report_error = [&](const char *fmt, const auto &...vals) {
     unit.GetSymbolFileDWARF().GetObjectFile()->GetModule()->ReportError(
@@ -74,6 +78,8 @@ bool DWARFDebugInfoEntry::Extract(const DWARFDataExtractor &data,
   m_has_children = abbrevDecl->hasChildren();
   // Skip all data in the .debug_info or .debug_types for the attributes
   for (const auto &attribute : abbrevDecl->attributes()) {
+    if (has_parent_attr && attribute.Attr == DW_AT_ZIG_parent)
+      *has_parent_attr = true;
     if (DWARFFormValue::SkipValue(attribute.Form, data, offset_ptr, &unit))
       continue;
 
@@ -103,15 +109,19 @@ static void ExtractAttrAndFormValue(
 /// the DIEs it elaborates on to \c elaborating_dies.
 static void GetDIENamesAndRanges(
     const DWARFDIE &die, const char *&name, const char *&mangled,
-    llvm::DWARFAddressRangesVector &ranges, std::optional<int> &decl_file,
+    llvm::DWARFAddressRangesVector &ranges,
+    std::optional<std::pair<DWARFUnit *, size_t>> &decl_file,
     std::optional<int> &decl_line, std::optional<int> &decl_column,
-    std::optional<int> &call_file, std::optional<int> &call_line,
-    std::optional<int> &call_column, DWARFExpressionList *frame_base,
+    std::optional<std::pair<DWARFUnit *, size_t>> &call_file,
+    std::optional<int> &call_line, std::optional<int> &call_column,
+    DWARFExpressionList *frame_base,
     llvm::SmallVectorImpl<DWARFDIE> &elaborating_dies) {
   DWARFUnit *cu = die.GetCU();
   dw_addr_t lo_pc = LLDB_INVALID_ADDRESS;
   dw_addr_t hi_pc = LLDB_INVALID_ADDRESS;
   std::vector<DWARFDIE> dies;
+  std::optional<int> relative_decl_line;
+  std::optional<int> relative_call_line;
   bool set_frame_base_loclist_addr = false;
 
   SymbolFileDWARF &dwarf = cu->GetSymbolFileDWARF();
@@ -197,12 +207,17 @@ static void GetDIENamesAndRanges(
 
         case DW_AT_decl_file:
           if (!decl_file)
-            decl_file = form_value.Unsigned();
+            decl_file = std::make_pair(cu, form_value.Unsigned());
           break;
 
         case DW_AT_decl_line:
           if (!decl_line)
             decl_line = form_value.Unsigned();
+          break;
+
+        case DW_AT_ZIG_decl_line_relative:
+          if (!decl_line)
+            relative_decl_line = form_value.Signed();
           break;
 
         case DW_AT_decl_column:
@@ -212,12 +227,17 @@ static void GetDIENamesAndRanges(
 
         case DW_AT_call_file:
           if (!call_file)
-            call_file = form_value.Unsigned();
+            call_file = std::make_pair(cu, form_value.Unsigned());
           break;
 
         case DW_AT_call_line:
           if (!call_line)
             call_line = form_value.Unsigned();
+          break;
+
+        case DW_AT_ZIG_call_line_relative:
+          if (!call_line)
+            relative_call_line = form_value.Signed();
           break;
 
         case DW_AT_call_column:
@@ -271,7 +291,30 @@ static void GetDIENamesAndRanges(
     frame_base->SetFuncFileAddress(file_addr);
   }
 
-  if (ranges.empty() || name == nullptr || mangled == nullptr) {
+  if (!call_line && relative_call_line) {
+    const DWARFDIE parent = die.GetParent();
+    if (auto parent_decl_line =
+            parent.GetDIE()->GetAttributeValueAsOptionalUnsigned(
+                parent.GetCU(), DW_AT_decl_line, true))
+      call_line = *parent_decl_line + *relative_call_line;
+  }
+
+  if (!decl_file) {
+    DWARFDIE parent = die;
+    while (parent.Tag() != DW_TAG_inlined_subroutine) {
+      parent = parent.GetParent();
+      if (!parent)
+        break;
+      auto parent_decl_file =
+          parent.GetAttributeValueAsOptionalUnsigned(DW_AT_decl_file);
+      if (!parent_decl_file)
+        continue;
+      decl_file = std::make_pair(parent.GetCU(), *parent_decl_file);
+      break;
+    }
+  }
+
+  if (ranges.empty() || name == nullptr || mangled == nullptr || !decl_file) {
     for (const DWARFDIE &die : dies) {
       if (die)
         elaborating_dies.push_back(die);
@@ -285,10 +328,12 @@ static void GetDIENamesAndRanges(
 // DW_AT_low_pc/DW_AT_high_pc pair, DW_AT_entry_pc, or DW_AT_ranges attributes.
 bool DWARFDebugInfoEntry::GetDIENamesAndRanges(
     DWARFUnit *cu, const char *&name, const char *&mangled,
-    llvm::DWARFAddressRangesVector &ranges, std::optional<int> &decl_file,
+    llvm::DWARFAddressRangesVector &ranges,
+    std::optional<std::pair<DWARFUnit *, size_t>> &decl_file,
     std::optional<int> &decl_line, std::optional<int> &decl_column,
-    std::optional<int> &call_file, std::optional<int> &call_line,
-    std::optional<int> &call_column, DWARFExpressionList *frame_base) const {
+    std::optional<std::pair<DWARFUnit *, size_t>> &call_file,
+    std::optional<int> &call_line, std::optional<int> &call_column,
+    DWARFExpressionList *frame_base) const {
   llvm::SmallVector<DWARFDIE, 3> worklist;
   worklist.emplace_back(cu, this);
 
@@ -319,6 +364,10 @@ bool DWARFDebugInfoEntry::GetDIENamesAndRanges(
   return !ranges.empty();
 }
 
+DWARFDebugInfoEntry *DWARFDebugInfoEntry::GetParentAttr(DWARFUnit *cu) const {
+  return GetAttributeValueAsReference(cu, DW_AT_ZIG_parent).GetDIE();
+}
+
 /// Helper for the public \ref DWARFDebugInfoEntry::GetAttributes API.
 /// Adds all attributes of the DIE at the top of the \c worklist to the
 /// \c attributes list. Specifcations and abstract origins are added
@@ -333,7 +382,7 @@ GetAttributes(llvm::SmallVectorImpl<DWARFDIE> &worklist,
 
   DWARFDIE current = worklist.pop_back_val();
 
-  const auto *cu = current.GetCU();
+  auto *cu = current.GetCU();
   assert(cu);
 
   const auto *entry = current.GetDIE();
@@ -426,7 +475,7 @@ DWARFAttributes DWARFDebugInfoEntry::GetAttributes(const DWARFUnit *cu,
 // or zero if we fail since an offset of zero is invalid for an attribute (it
 // would be a compile unit header).
 dw_offset_t DWARFDebugInfoEntry::GetAttributeValue(
-    const DWARFUnit *cu, const dw_attr_t attr, DWARFFormValue &form_value,
+    DWARFUnit *cu, const dw_attr_t attr, DWARFFormValue &form_value,
     dw_offset_t *end_attr_offset_ptr, bool check_elaborating_dies) const {
   if (const auto *abbrevDecl = GetAbbreviationDeclarationPtr(cu)) {
     std::optional<uint32_t> attr_idx = abbrevDecl->findAttributeIndex(attr);
@@ -478,7 +527,7 @@ dw_offset_t DWARFDebugInfoEntry::GetAttributeValue(
 // be available as long as the SymbolFileDWARF is still around and it's content
 // doesn't change.
 const char *DWARFDebugInfoEntry::GetAttributeValueAsString(
-    const DWARFUnit *cu, const dw_attr_t attr, const char *fail_value,
+    DWARFUnit *cu, const dw_attr_t attr, const char *fail_value,
     bool check_elaborating_dies) const {
   DWARFFormValue form_value;
   if (GetAttributeValue(cu, attr, form_value, nullptr, check_elaborating_dies))
@@ -490,7 +539,7 @@ const char *DWARFDebugInfoEntry::GetAttributeValueAsString(
 //
 // Get the value of an attribute as unsigned and return it.
 uint64_t DWARFDebugInfoEntry::GetAttributeValueAsUnsigned(
-    const DWARFUnit *cu, const dw_attr_t attr, uint64_t fail_value,
+    DWARFUnit *cu, const dw_attr_t attr, uint64_t fail_value,
     bool check_elaborating_dies) const {
   DWARFFormValue form_value;
   if (GetAttributeValue(cu, attr, form_value, nullptr, check_elaborating_dies))
@@ -500,8 +549,7 @@ uint64_t DWARFDebugInfoEntry::GetAttributeValueAsUnsigned(
 
 std::optional<uint64_t>
 DWARFDebugInfoEntry::GetAttributeValueAsOptionalUnsigned(
-    const DWARFUnit *cu, const dw_attr_t attr,
-    bool check_elaborating_dies) const {
+    DWARFUnit *cu, const dw_attr_t attr, bool check_elaborating_dies) const {
   DWARFFormValue form_value;
   if (GetAttributeValue(cu, attr, form_value, nullptr, check_elaborating_dies))
     return form_value.Unsigned();
@@ -513,8 +561,7 @@ DWARFDebugInfoEntry::GetAttributeValueAsOptionalUnsigned(
 // Get the value of an attribute as reference and fix up and compile unit
 // relative offsets as needed.
 DWARFDIE DWARFDebugInfoEntry::GetAttributeValueAsReference(
-    const DWARFUnit *cu, const dw_attr_t attr,
-    bool check_elaborating_dies) const {
+    DWARFUnit *cu, const dw_attr_t attr, bool check_elaborating_dies) const {
   DWARFFormValue form_value;
   if (GetAttributeValue(cu, attr, form_value, nullptr, check_elaborating_dies))
     return form_value.Reference();
@@ -522,7 +569,7 @@ DWARFDIE DWARFDebugInfoEntry::GetAttributeValueAsReference(
 }
 
 uint64_t DWARFDebugInfoEntry::GetAttributeValueAsAddress(
-    const DWARFUnit *cu, const dw_attr_t attr, uint64_t fail_value,
+    DWARFUnit *cu, const dw_attr_t attr, uint64_t fail_value,
     bool check_elaborating_dies) const {
   DWARFFormValue form_value;
   if (GetAttributeValue(cu, attr, form_value, nullptr, check_elaborating_dies))
@@ -537,7 +584,7 @@ uint64_t DWARFDebugInfoEntry::GetAttributeValueAsAddress(
 //
 // Returns the hi_pc or fail_value.
 dw_addr_t
-DWARFDebugInfoEntry::GetAttributeHighPC(const DWARFUnit *cu, dw_addr_t lo_pc,
+DWARFDebugInfoEntry::GetAttributeHighPC(DWARFUnit *cu, dw_addr_t lo_pc,
                                         uint64_t fail_value,
                                         bool check_elaborating_dies) const {
   DWARFFormValue form_value;
@@ -561,8 +608,8 @@ DWARFDebugInfoEntry::GetAttributeHighPC(const DWARFUnit *cu, dw_addr_t lo_pc,
 //
 // Returns true or sets lo_pc and hi_pc to fail_value.
 bool DWARFDebugInfoEntry::GetAttributeAddressRange(
-    const DWARFUnit *cu, dw_addr_t &lo_pc, dw_addr_t &hi_pc,
-    uint64_t fail_value, bool check_elaborating_dies) const {
+    DWARFUnit *cu, dw_addr_t &lo_pc, dw_addr_t &hi_pc, uint64_t fail_value,
+    bool check_elaborating_dies) const {
   lo_pc = GetAttributeValueAsAddress(cu, DW_AT_low_pc, fail_value,
                                      check_elaborating_dies);
   if (lo_pc != fail_value) {
@@ -598,7 +645,7 @@ DWARFDebugInfoEntry::GetAttributeAddressRanges(
 //
 // Get value of the DW_AT_name attribute and return it if one exists, else
 // return NULL.
-const char *DWARFDebugInfoEntry::GetName(const DWARFUnit *cu) const {
+const char *DWARFDebugInfoEntry::GetName(DWARFUnit *cu) const {
   return GetAttributeValueAsString(cu, DW_AT_name, nullptr, true);
 }
 
@@ -607,7 +654,7 @@ const char *DWARFDebugInfoEntry::GetName(const DWARFUnit *cu) const {
 // Get value of the DW_AT_MIPS_linkage_name attribute and return it if one
 // exists, else return the value of the DW_AT_name attribute
 const char *
-DWARFDebugInfoEntry::GetMangledName(const DWARFUnit *cu,
+DWARFDebugInfoEntry::GetMangledName(DWARFUnit *cu,
                                     bool substitute_name_allowed) const {
   const char *name = nullptr;
 
@@ -630,7 +677,7 @@ DWARFDebugInfoEntry::GetMangledName(const DWARFUnit *cu,
 //
 // Get value the name for a DIE as it should appear for a .debug_pubnames or
 // .debug_pubtypes section.
-const char *DWARFDebugInfoEntry::GetPubname(const DWARFUnit *cu) const {
+const char *DWARFDebugInfoEntry::GetPubname(DWARFUnit *cu) const {
   const char *name = nullptr;
   if (!cu)
     return name;
@@ -645,6 +692,19 @@ const char *DWARFDebugInfoEntry::GetPubname(const DWARFUnit *cu) const {
 
   name = GetAttributeValueAsString(cu, DW_AT_name, nullptr, true);
   return name;
+}
+
+std::optional<std::pair<DWARFUnit *, size_t>>
+DWARFDebugInfoEntry::GetAttributeDeclFile(DWARFUnit *cu) const {
+  bool check_elaborating_dies = true;
+  for (const DWARFDebugInfoEntry *die = this; die; die = die->GetParent(cu)) {
+    DWARFFormValue form_value;
+    if (die->GetAttributeValue(cu, DW_AT_decl_file, form_value, nullptr,
+                               check_elaborating_dies))
+      return std::make_pair(form_value.GetUnit(), form_value.Unsigned());
+    check_elaborating_dies = false;
+  }
+  return std::nullopt;
 }
 
 /// This function is builds a table very similar to the standard .debug_aranges
@@ -694,10 +754,10 @@ DWARFDebugInfoEntry::GetAbbreviationDeclarationPtr(const DWARFUnit *cu) const {
   return abbrev_set->getAbbreviationDeclaration(m_abbr_idx);
 }
 
-bool DWARFDebugInfoEntry::IsGlobalOrStaticScopeVariable() const {
+bool DWARFDebugInfoEntry::IsGlobalOrStaticScopeVariable(DWARFUnit *cu) const {
   if (Tag() != DW_TAG_variable && Tag() != DW_TAG_member)
     return false;
-  const DWARFDebugInfoEntry *parent_die = GetParent();
+  const DWARFDebugInfoEntry *parent_die = GetParent(cu);
   while (parent_die != nullptr) {
     switch (parent_die->Tag()) {
     case DW_TAG_subprogram:
@@ -712,7 +772,7 @@ bool DWARFDebugInfoEntry::IsGlobalOrStaticScopeVariable() const {
     default:
       break;
     }
-    parent_die = parent_die->GetParent();
+    parent_die = parent_die->GetParent(cu);
   }
   return false;
 }

@@ -36,6 +36,7 @@ public:
   ~ValueObjectDynamicValue() override = default;
 
   llvm::Expected<uint64_t> GetByteSize() override;
+  llvm::Expected<uint64_t> GetBitSize() override;
 
   ConstString GetTypeName() override;
 

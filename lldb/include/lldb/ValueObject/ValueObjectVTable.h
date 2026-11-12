@@ -63,6 +63,12 @@ public:
   static lldb::ValueObjectSP Create(ValueObject &parent);
 
   llvm::Expected<uint64_t> GetByteSize() override;
+  llvm::Expected<uint64_t> GetBitSize() override {
+    auto byte_size_or_err = GetByteSize();
+    if (!byte_size_or_err)
+      return byte_size_or_err.takeError();
+    return *byte_size_or_err * 8;
+  }
 
   llvm::Expected<uint32_t> CalculateNumChildren(uint32_t max) override;
 

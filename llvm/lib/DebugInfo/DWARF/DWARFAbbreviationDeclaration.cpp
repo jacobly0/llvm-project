@@ -26,6 +26,7 @@ void DWARFAbbreviationDeclaration::clear() {
   Tag = DW_TAG_null;
   CodeByteSize = 0;
   HasChildren = false;
+  HasParentAttr = false;
   AttributeSpecs.clear();
   FixedAttributeSize.reset();
 }
@@ -92,6 +93,9 @@ DWARFAbbreviationDeclaration::extract(DataExtractor Data, uint64_t *OffsetPtr) {
           "malformed abbreviation declaration attribute. Either the attribute "
           "or the form is zero while the other is not");
     }
+
+    if (A == DW_AT_ZIG_parent)
+      HasParentAttr = true;
 
     bool IsImplicitConst = (F == DW_FORM_implicit_const);
     if (IsImplicitConst) {
